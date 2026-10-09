@@ -1,22 +1,35 @@
-use std::fmt;
+//! Core chess types: colors, pieces, squares, castling rights and moves.
+
+use std::{error::Error, fmt, str::FromStr};
+
+// ---------------------------------------------------------------------------
+// Color
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-enum Color {
-    White,
-    Black,
+#[repr(u8)]
+pub enum Color {
+    White = 0,
+    Black = 1,
 }
 
 impl Color {
+    /// Both colors, in index order.
+    pub const ALL: [Color; 2] = [Color::White, Color::Black];
+
+    /// Number of colors, for sizing arrays.
+    pub const COUNT: usize = Self::ALL.len();
+
+    /// Index for array lookups. White = 0, Black = 1.
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    /// Gets opposite color of self.
     fn opposite(&self) -> Self {
         match self {
             Color::White => Color::Black,
             Color::Black => Color::White,
-        }
-    }
-    fn num(&self) -> u8 {
-        match self {
-            Color::White => 1,
-            Color::Black => 0,
         }
     }
 }
@@ -32,7 +45,12 @@ pub enum PieceType {
     King = 5,
 }
 
+// ---------------------------------------------------------------------------
+// PieceType
+// ---------------------------------------------------------------------------
+
 impl PieceType {
+    /// Every piece type, in index order.
     pub const ALL: [PieceType; 6] = [
         PieceType::Pawn,
         PieceType::Knight,
@@ -42,16 +60,20 @@ impl PieceType {
         PieceType::King,
     ];
 
+    /// Number of piece types, for sizing arrays.
     pub const COUNT: usize = Self::ALL.len();
 
+    /// Index for array lookups, 0 through 5.
     pub const fn index(self) -> usize {
         self as usize
     }
 
+    /// The piece type at `index`, or `None` if it is out of range.
     pub fn from_index(index: usize) -> Option<Self> {
         Self::ALL.get(index).copied()
     }
 
+    /// Lowercase letter as used in FEN and UCI.
     pub const fn letter(self) -> char {
         match self {
             PieceType::Pawn => 'p',
@@ -63,6 +85,7 @@ impl PieceType {
         }
     }
 
+    /// Parses a lowercase letter. Case and Color are handled by `Piece`.
     pub fn from_letter(c: char) -> Option<Self> {
         Self::ALL.into_iter().find(|pt| pt.letter() == c)
     }
@@ -74,173 +97,352 @@ impl fmt::Display for PieceType {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Piece
+// ---------------------------------------------------------------------------
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-struct Piece {
-    color: Color,
-    piece_type: PieceType,
+pub struct Piece {
+    pub color: Color,
+    pub piece_type: PieceType,
 }
 
 impl Piece {
-    fn from_fen(fen_char: char) -> Option<Self> {
-        let color = match fen_char.is_uppercase() {
-            true => Color::White,
-            false => Color::Black,
+    pub const fn new(color: Color, piece_type: PieceType) -> Self {
+        Self { color, piece_type }
+    }
+
+    /// Parses a FEN piece character. Uppercase for white, lowercase for black.
+    pub fn from_fen_char(c: char) -> Option<Self> {
+        let piece_type = PieceType::from_letter(c.to_ascii_lowercase())?;
+        let color = if c.is_uppercase() {
+            Color::White
+        } else {
+            Color::Black
         };
-        let piece_type = PieceType::from_letter(fen_char)?;
         Some(Self { color, piece_type })
     }
-    fn get_fen(&self) -> char {
-        let fen_char = self.piece_type.letter();
+
+    /// Gets the FEN character for this piece.
+    pub const fn fen_char(self) -> char {
+        let c = self.piece_type.letter();
         match self.color {
-            Color::White => fen_char.to_ascii_uppercase(),
-            Color::Black => fen_char,
+            Color::White => c.to_ascii_uppercase(),
+            Color::Black => c,
         }
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-struct Square(u8);
-
-impl Square {
-    const FILES: [char; 8] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-
-    fn from_idx(idx: u8) -> Option<Self> {
-        if idx > 63 {
-            return None;
-        };
-        Some(Self(idx))
-    }
-    fn from_rank_and_file(rank: u8, file: u8) -> Result<Self, String> {
-        if rank > 7 || rank == 0 {
-            return Err("Rank out of domain {0, 7}".to_string());
-        };
-        if file > 7 || file == 0 {
-            return Err("File out of domain {a-h}".to_string());
-        };
-        Ok(Self(rank * 8 + file))
-    }
-    fn idx(&self) -> u8 {
-        self.0
-    }
-    fn rank(&self) -> u8 {
-        self.0 / 8
-    }
-    fn file(&self) -> char {
-        let file_idx = (self.0 % 8) as usize;
-        Self::FILES[file_idx]
-    }
-    fn bitboard(&self) -> u64 {
-        1u64 << self.0
-    }
-    fn fmt_square(square: Self) -> String {
-        format!("{}{}", square.file(), square.rank())
+impl fmt::Display for Piece {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.fen_char())
     }
 }
 
+// ---------------------------------------------------------------------------
+// Square
+// ---------------------------------------------------------------------------
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-enum CastleSide {
+pub struct Square(u8);
+
+impl Square {
+    /// Number of squares, for sizing arrays.
+    pub const COUNT: usize = 64;
+
+    /// The square at `index`, or `None` if it is not in range 0..64.
+    pub const fn from_index(index: usize) -> Option<Self> {
+        if index < Self::COUNT {
+            Some(Self(index as u8))
+        } else {
+            None
+        }
+    }
+
+    /// The square at a 0-based file and rank (a = 0, rank 1 = 0).
+    pub const fn from_file_rank(file: u8, rank: u8) -> Option<Self> {
+        if file < 8 && rank < 8 {
+            Some(Self(rank * 8 + file))
+        } else {
+            None
+        }
+    }
+
+    /// Index for array lookups, 0..63.
+    pub const fn index(&self) -> usize {
+        self.0 as usize
+    }
+
+    /// 0-based file.
+    pub const fn file(&self) -> u8 {
+        self.0 % 8
+    }
+
+    /// 0-based rank.
+    pub const fn rank(&self) -> u8 {
+        self.0 / 8
+    }
+
+    /// A bitboard with only this square's bit set.
+    pub const fn bitboard(&self) -> u64 {
+        1u64 << self.0
+    }
+}
+
+impl fmt::Display for Square {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let file = (b'a' + self.file()) as char;
+        let rank = self.rank() + 1;
+        write!(f, "{file}{rank}")
+    }
+}
+
+impl FromStr for Square {
+    type Err = ParseError;
+
+    /// Parses a square name, e.g. `e4`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match *s.as_bytes() {
+            [file @ b'a'..=b'h', rank @ b'1'..=b'8'] => Ok(Self((rank - b'1') * 8 + (file - b'a'))),
+            _ => Err(ParseError::InvalidSquare),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Castling
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum CastleSide {
     KingSide,
     QueenSide,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-struct CastlingRights(u8);
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
+pub struct CastlingRights(u8);
 
 impl CastlingRights {
-    const WK_BIT: u8 = 0b0000_0001;
-    const WQ_BIT: u8 = 0b0000_0010;
-    const BK_BIT: u8 = 0b0000_0100;
-    const BQ_BIT: u8 = 0b0000_1000;
+    pub const NONE: Self = Self(0);
+    pub const ALL: Self = Self(0b1111);
 
-    fn can_castle(&self, color: Color, castle_side: CastleSide) -> bool {
-        let shift = match (color, castle_side) {
-            (Color::White, CastleSide::KingSide) => 0,
-            (Color::White, CastleSide::QueenSide) => 1,
-            (Color::Black, CastleSide::KingSide) => 2,
-            (Color::Black, CastleSide::QueenSide) => 3,
-        };
+    const FEN_ORDER: [(char, Color, CastleSide); 4] = [
+        ('K', Color::White, CastleSide::KingSide),
+        ('Q', Color::White, CastleSide::QueenSide),
+        ('k', Color::Black, CastleSide::KingSide),
+        ('q', Color::Black, CastleSide::QueenSide),
+    ];
 
-        (self.0 & (1u8 << shift)) != 0
-    }
-    fn remove_one_right(&mut self, color: Color, castle_side: CastleSide) {
-        match (color, castle_side) {
-            (Color::White, CastleSide::KingSide) => self.0 &= !(Self::WK_BIT),
-            (Color::White, CastleSide::QueenSide) => self.0 &= !(Self::WQ_BIT),
-            (Color::Black, CastleSide::KingSide) => self.0 &= !(Self::BK_BIT),
-            (Color::Black, CastleSide::QueenSide) => self.0 &= !(Self::BQ_BIT),
+    /// Matches bit for `color` and `side`.
+    const fn bit(color: Color, side: CastleSide) -> u8 {
+        match (color, side) {
+            (Color::White, CastleSide::KingSide) => 0b0001,
+            (Color::White, CastleSide::QueenSide) => 0b0010,
+            (Color::Black, CastleSide::KingSide) => 0b0100,
+            (Color::Black, CastleSide::QueenSide) => 0b1000,
         }
     }
-    fn remove_both_right(&mut self, color: Color) {
-        match color {
-            Color::White => self.0 &= !(Self::WK_BIT + Self::WQ_BIT),
-            Color::Black => self.0 &= !(Self::BK_BIT + Self::BQ_BIT),
-        }
-    }
-    fn rights_from_fen(fen: String) -> Result<Self, String> {
-        if fen.len() > 4
-            || fen.is_empty()
-            || fen
-                .chars()
-                .any(|c| !matches!(c, 'K' | 'Q' | 'k' | 'q' | '-'))
-        {
-            return Err("Invalid FEN".to_string());
-        }
 
-        let mut rights: u8 = 0;
-        if fen.contains("K") {
-            rights |= Self::WK_BIT;
-        }
-        if fen.contains("Q") {
-            rights |= Self::WQ_BIT;
-        }
-        if fen.contains("k") {
-            rights |= Self::BK_BIT;
-        }
-        if fen.contains("q") {
-            rights |= Self::BQ_BIT;
-        }
-        Ok(Self(rights))
+    /// Whether `color` still has the right to castle on `side`.
+    pub const fn has(self, color: Color, side: CastleSide) -> bool {
+        self.0 & Self::bit(color, side) != 0
     }
-    fn fen(&self) -> String {
-        let mut fen: String = String::new();
-        if (self.0 & Self::WK_BIT) != 0 {
-            fen.push('K');
-        }
-        if (self.0 & Self::WQ_BIT) != 0 {
-            fen.push('Q');
-        }
-        if (self.0 & Self::BK_BIT) != 0 {
-            fen.push('k');
-        }
-        if (self.0 & Self::BQ_BIT) != 0 {
-            fen.push('q');
-        }
-        if fen.is_empty() {
-            fen.push('-');
-        }
-        fen
+
+    /// Removes one right.
+    pub fn remove_one(&mut self, color: Color, side: CastleSide) {
+        self.0 &= !Self::bit(color, side);
+    }
+
+    /// Removes both rights for `color`.
+    pub fn remove_both(&mut self, color: Color) {
+        self.remove_one(color, CastleSide::KingSide);
+        self.remove_one(color, CastleSide::QueenSide);
     }
 }
 
+impl fmt::Display for CastlingRights {
+    /// Writes the FEN castling field, e.g. `KQkq`, `Kq`, `-`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if *self == Self::NONE {
+            return write!(f, "-");
+        }
+        for (c, color, side) in Self::FEN_ORDER {
+            if self.has(color, side) {
+                write!(f, "{c}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl FromStr for CastlingRights {
+    type Err = ParseError;
+
+    /// Parses the FEN castling field. Rejects invalid FEN.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "-" {
+            return Ok(Self::NONE);
+        }
+        if s.is_empty() {
+            return Err(ParseError::InvalidCastlingRights);
+        }
+
+        let mut rights = Self::NONE;
+        for ch in s.chars() {
+            let (_, color, side) = Self::FEN_ORDER
+                .into_iter()
+                .find(|&(c, _, _)| c == ch)
+                .ok_or(ParseError::InvalidCastlingRights)?;
+            if rights.has(color, side) {
+                return Err(ParseError::InvalidCastlingRights);
+            }
+            rights.0 |= Self::bit(color, side);
+        }
+        Ok(rights)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Move
+// ---------------------------------------------------------------------------
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-struct Move {
+pub struct Move {
     from: Square,
     to: Square,
     promotion: Option<PieceType>,
 }
 
-impl Move {
-    fn display_uci(&self) -> String {
-        let promo_str = match self.promotion {
-            Some(c) => c.to_string(), // LIKELY BROKEN AS c IS TYPE 'Square'
-            None => String::new(),
-        };
+impl fmt::Display for Move {
+    /// Writes the move in UCI notation, e.g. `e2e4`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", self.from, self.to)?;
+        if let Some(promotion) = self.promotion {
+            write!(f, "{promotion}")?;
+        }
+        Ok(())
+    }
+}
 
-        format!(
-            "{}{}{}",
-            Square::fmt_square(self.from),
-            Square::fmt_square(self.to),
-            promo_str
-        )
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ParseError {
+    InvalidSquare,
+    InvalidCastlingRights,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::InvalidSquare => write!(f, "invalid square name"),
+            ParseError::InvalidCastlingRights => write!(f, "invalid castling rights"),
+        }
+    }
+}
+
+impl Error for ParseError {}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn piece_type_round_trips() {
+        for pt in PieceType::ALL {
+            assert_eq!(PieceType::from_index(pt.index()), Some(pt));
+            assert_eq!(PieceType::from_letter(pt.letter()), Some(pt));
+        }
+        assert_eq!(PieceType::from_index(PieceType::COUNT), None);
+        assert_eq!(PieceType::from_letter('Q'), None);
+    }
+
+    #[test]
+    fn piece_round_trips() {
+        for c in "PNBRQKpnbrqk".chars() {
+            let piece = Piece::from_fen_char(c).expect("valid piece char");
+            assert_eq!(piece.fen_char(), c);
+        }
+        assert_eq!(
+            Piece::from_fen_char('N'),
+            Some(Piece::new(Color::White, PieceType::Knight))
+        );
+        assert_eq!(Piece::from_fen_char('x'), None);
+        assert_eq!(Piece::from_fen_char('1'), None);
+    }
+
+    #[test]
+    fn square_round_trips() {
+        for index in 0..Square::COUNT {
+            let sq = Square::from_index(index).unwrap();
+            assert_eq!(sq.to_string().parse::<Square>(), Ok(sq));
+            assert_eq!(Square::from_file_rank(sq.file(), sq.rank()), Some(sq));
+        }
+        assert_eq!(Square::from_index(64), None);
+        assert_eq!(Square::from_file_rank(8, 0), None);
+    }
+
+    #[test]
+    fn square_names() {
+        assert_eq!(Square::from_index(0).unwrap().to_string(), "a1");
+        assert_eq!(Square::from_index(28).unwrap().to_string(), "e4");
+        assert_eq!(Square::from_index(63).unwrap().to_string(), "h8");
+        for bad in ["", "e", "e9", "i1", "E4", "e44", "4e"] {
+            assert!(bad.parse::<Square>().is_err(), "{bad:?} should not parse");
+        }
+    }
+
+    #[test]
+    fn castling_round_trips() {
+        for s in ["KQkq", "KQ", "kq", "Kq", "Qk", "K", "q", "-"] {
+            let rights: CastlingRights = s.parse().unwrap();
+            assert_eq!(rights.to_string(), s);
+        }
+        // Out-of-order input is accepted and normalised.
+        assert_eq!("qK".parse::<CastlingRights>().unwrap().to_string(), "Kq");
+    }
+
+    #[test]
+    fn castling_rejects_bad_input() {
+        for bad in ["", "KK", "-K", "K-", "--", "x", "KQkqK"] {
+            assert!(
+                bad.parse::<CastlingRights>().is_err(),
+                "{bad:?} should not parse"
+            );
+        }
+    }
+
+    #[test]
+    fn castling_remove() {
+        let mut rights = CastlingRights::ALL;
+        rights.remove_one(Color::White, CastleSide::QueenSide);
+        assert_eq!(rights.to_string(), "Kkq");
+        rights.remove_both(Color::Black);
+        assert_eq!(rights.to_string(), "K");
+        rights.remove_one(Color::White, CastleSide::KingSide);
+        assert_eq!(rights, CastlingRights::NONE);
+    }
+
+    #[test]
+    fn move_display() {
+        let sq = |s: &str| s.parse::<Square>().unwrap();
+        let quiet = Move {
+            from: sq("e2"),
+            to: sq("e4"),
+            promotion: None,
+        };
+        let promo = Move {
+            from: sq("e7"),
+            to: sq("e8"),
+            promotion: Some(PieceType::Queen),
+        };
+        assert_eq!(quiet.to_string(), "e2e4");
+        assert_eq!(promo.to_string(), "e7e8q");
     }
 }
