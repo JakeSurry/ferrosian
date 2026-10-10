@@ -27,7 +27,7 @@ impl Color {
     }
 
     /// Gets opposite color of self.
-    fn opposite(&self) -> Self {
+    pub const fn opposite(self) -> Self {
         match self {
             Color::White => Color::Black,
             Color::Black => Color::White,
@@ -184,22 +184,22 @@ impl Square {
     }
 
     /// Index for array lookups, 0..63.
-    pub const fn index(&self) -> usize {
+    pub const fn index(self) -> usize {
         self.0 as usize
     }
 
     /// 0-based file.
-    pub const fn file(&self) -> u8 {
+    pub const fn file(self) -> u8 {
         self.0 % 8
     }
 
     /// 0-based rank.
-    pub const fn rank(&self) -> u8 {
+    pub const fn rank(self) -> u8 {
         self.0 / 8
     }
 
     /// A bitboard with only this square's bit set.
-    pub const fn bitboard(&self) -> u64 {
+    pub const fn bitboard(self) -> u64 {
         1u64 << self.0
     }
 }
@@ -326,6 +326,31 @@ pub struct Move {
     from: Square,
     to: Square,
     promotion: Option<PieceType>,
+}
+
+impl Move {
+    pub fn new(from: Square, to: Square, promotion: Option<PieceType>) -> Self {
+        Move {
+            from,
+            to,
+            promotion,
+        }
+    }
+
+    /// `square` where move originated.
+    pub fn from(&self) -> Square {
+        self.from
+    }
+
+    /// `square` were move ended up.
+    pub fn to(&self) -> Square {
+        self.to
+    }
+
+    /// `PieceType` of promotion piece, `None` if move was not a promotion.
+    pub fn promotion(&self) -> Option<PieceType> {
+        self.promotion
+    }
 }
 
 impl fmt::Display for Move {

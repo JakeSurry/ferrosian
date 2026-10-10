@@ -202,7 +202,7 @@ impl fmt::Display for Board {
         writeln!(f, "  a b c d e f g h")?;
         writeln!(f)?;
 
-        writeln!(f, "Side to move: {:?}", self.side_to_move)?;
+        writeln!(f, "Side to move: {}", self.side_to_move)?;
         writeln!(f, "Castling: {}", self.castling_rights)?;
         match self.en_passant_square {
             Some(square) => writeln!(f, "En passant: {square}")?,
