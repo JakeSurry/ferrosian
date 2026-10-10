@@ -6,9 +6,10 @@ use std::{error::Error, fmt, str::FromStr};
 // Color
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
 #[repr(u8)]
 pub enum Color {
+    #[default]
     White = 0,
     Black = 1,
 }
@@ -30,6 +31,15 @@ impl Color {
         match self {
             Color::White => Color::Black,
             Color::Black => Color::White,
+        }
+    }
+}
+
+impl fmt::Display for Color {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Color::White => write!(f, "White"),
+            Color::Black => write!(f, "Black"),
         }
     }
 }
@@ -130,6 +140,11 @@ impl Piece {
             Color::White => c.to_ascii_uppercase(),
             Color::Black => c,
         }
+    }
+
+    /// Legible name for a piece, used in error messages.
+    pub fn name(self) -> String {
+        format!("{:?} {:?}", self.color, self.piece_type)
     }
 }
 
