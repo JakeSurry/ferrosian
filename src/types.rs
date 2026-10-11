@@ -376,9 +376,10 @@ pub enum ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use ParseError::*;
         match self {
-            ParseError::InvalidSquare => write!(f, "invalid square name"),
-            ParseError::InvalidCastlingRights => write!(f, "invalid castling rights"),
+            InvalidSquare => write!(f, "invalid square name"),
+            InvalidCastlingRights => write!(f, "invalid castling rights"),
         }
     }
 }
