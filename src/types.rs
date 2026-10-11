@@ -33,6 +33,13 @@ impl Color {
             Color::Black => Color::White,
         }
     }
+
+    pub const fn fen_char(self) -> char {
+        match self {
+            Color::White => 'w',
+            Color::Black => 'b',
+        }
+    }
 }
 
 impl fmt::Display for Color {

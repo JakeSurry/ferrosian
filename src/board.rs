@@ -40,7 +40,7 @@ impl Board {
 
     /// The standard starting position.
     pub fn starting_position() -> Self {
-        todo!("parse STARTING_FEN once FEN parsing exists")
+        STARTING_FEN.parse().expect("starting fen is valid")
     }
 
     /// Places `piece` on `square`, updating its bitboard, its color's
@@ -284,14 +284,156 @@ impl Error for FenError {
 }
 impl FromStr for Board {
     type Err = FenError;
-    fn from_str(_s: &str) -> Result<Self, Self::Err> {
-        todo!()
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let fields: Vec<&str> = s.split_whitespace().collect();
+        let (placement, side_field, castling_field, ep_field, halfmove_field, fullmove_field) =
+            match fields[..] {
+                [p, s, c, e, h, f] => (p, s, c, e, Some(h), Some(f)),
+                [p, s, c, e] => (p, s, c, e, None, None),
+                _ => return Err(FenError::WrongFieldCount(fields.len())),
+            };
+        let mut board = Board::empty();
+
+        parse_placement(&mut board, placement)?;
+
+        board.side_to_move = match side_field {
+            "w" => Color::White,
+            "b" => Color::Black,
+            other => return Err(FenError::InvalidSideToMove(other.to_string())),
+        };
+
+        board.castling_rights = castling_field
+            .parse()
+            .map_err(|_| FenError::InvalidCastling(castling_field.to_string()))?;
+
+        board.en_passant_square = match ep_field {
+            "-" => None,
+            text => Some(
+                text.parse()
+                    .map_err(|_| FenError::InvalidEnPassant(text.to_string()))?,
+            ),
+        };
+
+        board.halfmove_clock = match halfmove_field {
+            None => 0,
+            Some(text) => text
+                .parse()
+                .map_err(|source| FenError::InvalidHalfmoveClock {
+                    text: text.to_string(),
+                    source,
+                })?,
+        };
+
+        board.fullmove_count = match fullmove_field {
+            None => 1,
+            Some(text) => text
+                .parse()
+                .map_err(|source| FenError::InvalidFullmoveCount {
+                    text: text.to_string(),
+                    source,
+                })?,
+        };
+
+        debug_assert_eq!(board.is_consistent(), Ok(()));
+        Ok(board)
     }
 }
 
+fn parse_placement(board: &mut Board, placement: &str) -> Result<(), FenError> {
+    let ranks: Vec<&str> = placement.split('/').collect();
+    if ranks.len() != 8 {
+        return Err(FenError::WrongRankCount(ranks.len()));
+    }
+
+    for (i, rank_text) in ranks.iter().enumerate() {
+        // FEN lists rank 8 first: i = 0 is rank index 7.
+        let rank = 7 - i as u8;
+        let wrong_length = || FenError::WrongRankLength {
+            rank: rank + 1,
+            text: rank_text.to_string(),
+        };
+
+        let mut file: u8 = 0;
+        let mut previous_was_digit = false;
+
+        for ch in rank_text.chars() {
+            if let Some(n) = ch.to_digit(10) {
+                // A digit: skip that many empty squares.
+                if !(1..=8).contains(&n) || previous_was_digit {
+                    return Err(FenError::InvalidRankChar { rank: rank + 1, ch });
+                }
+                file += n as u8;
+                previous_was_digit = true;
+            } else {
+                // Anything else must be a piece letter.
+                let piece = Piece::from_fen_char(ch)
+                    .ok_or(FenError::InvalidRankChar { rank: rank + 1, ch })?;
+                let square = Square::from_file_rank(file, rank).ok_or_else(wrong_length)?;
+                board.put_piece(square, piece);
+                file += 1;
+                previous_was_digit = false;
+            }
+        }
+
+        if file != 8 {
+            return Err(wrong_length());
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Fen<'a>(&'a Board);
+
 impl Board {
+    /// A value that displays this position as FEN.
+    pub fn fen(&self) -> Fen<'_> {
+        Fen(self)
+    }
+
+    /// The position in Forsyth–Edwards Notation.
     pub fn to_fen(&self) -> String {
-        todo!()
+        self.fen().to_string()
+    }
+}
+
+impl fmt::Display for Fen<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let board = self.0;
+
+        for rank in (0..8).rev() {
+            let mut empty = 0;
+            for file in 0..8 {
+                let square = Square::from_file_rank(file, rank).expect("file and rank are below 8");
+                match board.piece_at(square) {
+                    Some(piece) => {
+                        if empty > 0 {
+                            write!(f, "{empty}")?;
+                            empty = 0;
+                        }
+                        write!(f, "{piece}")?;
+                    }
+                    None => empty += 1,
+                }
+            }
+            if empty > 0 {
+                write!(f, "{empty}")?;
+            }
+            if rank > 0 {
+                f.write_str("/")?;
+            }
+        }
+
+        let side = match board.side_to_move() {
+            Color::White => 'w',
+            Color::Black => 'b',
+        };
+        write!(f, " {side} {} ", board.castling_rights())?;
+        match board.en_passant_square() {
+            Some(square) => write!(f, "{square}")?,
+            None => f.write_str("-")?,
+        }
+        write!(f, " {} {}", board.halfmove_clock(), board.fullmove_count())
     }
 }
 
@@ -577,7 +719,6 @@ Fullmove number: 1";
 
     // --- FEN -------------------------------------------------------------
 
-    /// Canonical FENs: parsing then printing each one must give back the same string.
     const ROUND_TRIP_FENS: [&str; 7] = [
         STARTING_FEN,
         // en passant, black to move
@@ -593,13 +734,11 @@ Fullmove number: 1";
         "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/3P1N1P/PPP1NPP1/R4RK1 w - - 0 10",
     ];
 
-    /// Parses a FEN, panicking with a readable message if it fails.
     fn parse(fen: &str) -> Board {
         fen.parse()
             .unwrap_or_else(|e| panic!("failed to parse {fen:?}: {e}"))
     }
 
-    /// Parses a FEN that must be rejected, returning the error.
     fn parse_err(fen: &str) -> FenError {
         match fen.parse::<Board>() {
             Ok(_) => panic!("{fen:?} should have been rejected"),
@@ -607,7 +746,6 @@ Fullmove number: 1";
         }
     }
 
-    /// Error from a FEN with the given placement and valid other fields.
     fn placement_err(placement: &str) -> FenError {
         parse_err(&format!("{placement} w - - 0 1"))
     }
