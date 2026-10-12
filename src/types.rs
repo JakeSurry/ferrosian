@@ -1,6 +1,7 @@
 //! Core chess types: colors, pieces, squares, castling rights and moves.
 
-use std::{error::Error, fmt, str::FromStr};
+use std::{fmt, str::FromStr};
+use thiserror::Error;
 
 // ---------------------------------------------------------------------------
 // Color
@@ -21,6 +22,19 @@ impl Color {
     /// Number of colors, for sizing arrays.
     pub const COUNT: usize = Self::ALL.len();
 
+    /// Self from fen char
+    pub fn from_fen_char(c: char) -> Option<Self> {
+        Self::ALL.into_iter().find(|color| color.fen_char() == c)
+    }
+
+    /// Fen character of self.
+    pub const fn fen_char(self) -> char {
+        match self {
+            Color::White => 'w',
+            Color::Black => 'b',
+        }
+    }
+
     /// Index for array lookups. White = 0, Black = 1.
     pub const fn index(self) -> usize {
         self as usize
@@ -31,13 +45,6 @@ impl Color {
         match self {
             Color::White => Color::Black,
             Color::Black => Color::White,
-        }
-    }
-
-    pub const fn fen_char(self) -> char {
-        match self {
-            Color::White => 'w',
-            Color::Black => 'b',
         }
     }
 }
@@ -375,23 +382,17 @@ impl fmt::Display for Move {
 // Errors
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Error)]
 pub enum ParseError {
+    #[error("invalid square name")]
     InvalidSquare,
+
+    #[error("invalid castling rights")]
     InvalidCastlingRights,
-}
 
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use ParseError::*;
-        match self {
-            InvalidSquare => write!(f, "invalid square name"),
-            InvalidCastlingRights => write!(f, "invalid castling rights"),
-        }
-    }
+    #[error("invalid color char")]
+    InvalidColor,
 }
-
-impl Error for ParseError {}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -444,6 +445,11 @@ mod tests {
         for bad in ["", "e", "e9", "i1", "E4", "e44", "4e"] {
             assert!(bad.parse::<Square>().is_err(), "{bad:?} should not parse");
         }
+    }
+
+    #[test]
+    fn square_from_file_rank_invalid_is_none() {
+        assert_eq!(Square::from_file_rank(8, 0), None);
     }
 
     #[test]

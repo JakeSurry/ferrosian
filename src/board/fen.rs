@@ -1,76 +1,44 @@
 use crate::board::Board;
 use crate::types::{Color, Piece, Square};
-use std::{error::Error, fmt, num::ParseIntError, str::FromStr};
+use std::{fmt, num::ParseIntError, str::FromStr};
+use thiserror::Error;
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Error)]
 pub enum FenError {
-    /// The FEN did not have 4 or 6 whitespace-separated fields.
+    #[error("expected 4 or 6 fields, found {0}")]
     WrongFieldCount(usize),
-    /// The placement field did not contain 8 ranks.
+
+    #[error("expected 8 ranks, found {0}")]
     WrongRankCount(usize),
-    /// A rank's pieces and empty-square counts did not add up to 8.
-    /// `rank` is 1-based, as in chess notation.
-    WrongRankLength {
-        rank: u8,
-        text: String,
-    },
-    /// A character in a rank that is neither a piece letter nor a digit 1-8,
-    /// or a digit directly following another digit.
-    InvalidRankChar {
-        rank: u8,
-        ch: char,
-    },
+
+    #[error("rank {rank} ({text:?}) does not describe exactly 8 squares")]
+    WrongRankLength { rank: u8, text: String },
+
+    #[error("invalid character {ch:?} in rank {rank}")]
+    InvalidRankChar { rank: u8, ch: char },
+
+    #[error("invalid side to move {0:?}, expected \"w\" or \"b\"")]
     InvalidSideToMove(String),
+
+    #[error("invalid castling rights {0:?}")]
     InvalidCastling(String),
+
+    #[error("invalid en passant square {0:?}")]
     InvalidEnPassant(String),
+
+    #[error("invalid halfmove clock {text:?}")]
     InvalidHalfmoveClock {
         text: String,
-        source: ParseIntError,
+        source: Option<ParseIntError>,
     },
+
+    #[error("invalid fullmove count {text:?}")]
     InvalidFullmoveCount {
         text: String,
-        source: ParseIntError,
+        source: Option<ParseIntError>,
     },
 }
 
-impl fmt::Display for FenError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::WrongFieldCount(n) => write!(f, "expected 4 or 6 fields, found {n}"),
-            Self::WrongRankCount(n) => write!(f, "expected 8 ranks, found {n}"),
-            Self::WrongRankLength { rank, text } => {
-                write!(
-                    f,
-                    "rank {rank} ({text:?}) does not describe exactly 8 squares"
-                )
-            }
-            Self::InvalidRankChar { rank, ch } => {
-                write!(f, "invalid character {ch:?} in rank {rank}")
-            }
-            Self::InvalidSideToMove(s) => {
-                write!(f, "invalid side to move {s:?}, expected \"w\" or \"b\"")
-            }
-            Self::InvalidCastling(s) => write!(f, "invalid castling rights {s:?}"),
-            Self::InvalidEnPassant(s) => write!(f, "invalid en passant square {s:?}"),
-            Self::InvalidHalfmoveClock { text, .. } => {
-                write!(f, "invalid halfmove clock {text:?}")
-            }
-            Self::InvalidFullmoveCount { text, .. } => {
-                write!(f, "invalid fullmove count {text:?}")
-            }
-        }
-    }
-}
-
-impl Error for FenError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::InvalidHalfmoveClock { source, .. }
-            | Self::InvalidFullmoveCount { source, .. } => Some(source),
-            _ => None,
-        }
-    }
-}
 impl FromStr for Board {
     type Err = FenError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -85,11 +53,12 @@ impl FromStr for Board {
 
         parse_placement(&mut board, placement)?;
 
-        board.side_to_move = match side_field {
-            "w" => Color::White,
-            "b" => Color::Black,
-            other => return Err(FenError::InvalidSideToMove(other.to_string())),
-        };
+        let mut chars = side_field.chars();
+        board.side_to_move = match (chars.next(), chars.next()) {
+            (Some(c), None) => Color::from_fen_char(c),
+            _ => None,
+        }
+        .ok_or_else(|| FenError::InvalidSideToMove(side_field.to_string()))?;
 
         board.castling_rights = castling_field
             .parse()
@@ -105,22 +74,18 @@ impl FromStr for Board {
 
         board.halfmove_clock = match halfmove_field {
             None => 0,
-            Some(text) => text
-                .parse()
-                .map_err(|source| FenError::InvalidHalfmoveClock {
-                    text: text.to_string(),
-                    source,
-                })?,
+            Some(text) => parse_clock(text).map_err(|source| FenError::InvalidHalfmoveClock {
+                text: text.to_string(),
+                source,
+            })?,
         };
 
         board.fullmove_count = match fullmove_field {
             None => 1,
-            Some(text) => text
-                .parse()
-                .map_err(|source| FenError::InvalidFullmoveCount {
-                    text: text.to_string(),
-                    source,
-                })?,
+            Some(text) => parse_clock(text).map_err(|source| FenError::InvalidFullmoveCount {
+                text: text.to_string(),
+                source,
+            })?,
         };
 
         debug_assert_eq!(board.is_consistent(), Ok(()));
@@ -171,6 +136,13 @@ fn parse_placement(board: &mut Board, placement: &str) -> Result<(), FenError> {
     Ok(())
 }
 
+fn parse_clock(text: &str) -> Result<u16, Option<ParseIntError>> {
+    if text.starts_with('+') {
+        return Err(None);
+    }
+    text.parse().map_err(Some)
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Fen<'a>(&'a Board);
 
@@ -213,10 +185,7 @@ impl fmt::Display for Fen<'_> {
             }
         }
 
-        let side = match board.side_to_move() {
-            Color::White => 'w',
-            Color::Black => 'b',
-        };
+        let side = board.side_to_move().fen_char();
         write!(f, " {side} {} ", board.castling_rights())?;
         match board.en_passant_square() {
             Some(square) => write!(f, "{square}")?,
@@ -490,19 +459,25 @@ mod tests {
 
     #[test]
     fn rejects_invalid_clocks() {
-        for clock in ["-1", "abc", "70000"] {
+        for (clock, has_source) in [("-1", true), ("abc", true), ("70000", true), ("+1", false)] {
             let err = parse_err(&format!("8/8/8/8/8/8/8/8 w - - {clock} 1"));
             assert!(
                 matches!(&err, FenError::InvalidHalfmoveClock { text, .. } if text == clock),
-                "{err:?}"
+                "{clock:?}: {err:?}"
             );
-            assert!(std::error::Error::source(&err).is_some());
+            assert_eq!(
+                std::error::Error::source(&err).is_some(),
+                has_source,
+                "{clock:?}"
+            );
         }
 
-        let err = parse_err("8/8/8/8/8/8/8/8 w - - 0 x");
-        assert!(
-            matches!(&err, FenError::InvalidFullmoveCount { text, .. } if text == "x"),
-            "{err:?}"
-        );
+        for clock in ["x", "+1"] {
+            let err = parse_err(&format!("8/8/8/8/8/8/8/8 w - - 0 {clock}"));
+            assert!(
+                matches!(&err, FenError::InvalidFullmoveCount { text, .. } if text == clock),
+                "{clock:?}: {err:?}"
+            );
+        }
     }
 }
