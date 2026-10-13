@@ -1,5 +1,5 @@
 use anyhow::Context;
-use chess::bitboard::BitboardGrid;
+use chess::types::Bitboard;
 use std::env;
 
 fn main() -> anyhow::Result<()> {
@@ -12,6 +12,6 @@ fn main() -> anyhow::Result<()> {
             .parse()
             .with_context(|| format!("expected a u64, got {input:?}"))?
     };
-    println!("{}", BitboardGrid(num));
+    println!("{}", Bitboard(num));
     Ok(())
 }

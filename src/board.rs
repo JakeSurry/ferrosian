@@ -9,15 +9,15 @@
 mod fen;
 pub use fen::{Fen, FenError};
 
-use crate::types::{CastlingRights, Color, Piece, PieceType, Square};
+use crate::types::{Bitboard, CastlingRights, Color, Piece, PieceType, Square};
 use std::fmt;
 
 pub const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Board {
-    bitboards: [[u64; PieceType::COUNT]; Color::COUNT],
-    occupancy: [u64; Color::COUNT],
+    bitboards: [[Bitboard; PieceType::COUNT]; Color::COUNT],
+    occupancy: [Bitboard; Color::COUNT],
     mailbox: [Option<Piece>; Square::COUNT],
     side_to_move: Color,
     castling_rights: CastlingRights,
@@ -30,8 +30,8 @@ impl Board {
     /// The empty board, at move 1 with white to move.
     pub const fn empty() -> Self {
         Self {
-            bitboards: [[0; PieceType::COUNT]; Color::COUNT],
-            occupancy: [0; Color::COUNT],
+            bitboards: [[Bitboard::EMPTY; PieceType::COUNT]; Color::COUNT],
+            occupancy: [Bitboard::EMPTY; Color::COUNT],
             mailbox: [None; Square::COUNT],
             side_to_move: Color::White,
             castling_rights: CastlingRights::NONE,
@@ -52,7 +52,7 @@ impl Board {
         let bit = square.bitboard();
         debug_assert_eq!(
             self.all_occupancy() & bit,
-            0,
+            Bitboard::EMPTY,
             "put_piece on occupied square {square}"
         );
         debug_assert!(self.mailbox[square.index()].is_none());
@@ -74,7 +74,7 @@ impl Board {
         let (color, piece_type) = (piece.color.index(), piece.piece_type.index());
         debug_assert_ne!(
             self.bitboards[color][piece_type] & bit,
-            0,
+            Bitboard::EMPTY,
             "mailbox and bitboards disagree at {square}"
         );
         self.bitboards[color][piece_type] &= !bit;
@@ -88,28 +88,28 @@ impl Board {
     }
 
     /// Bitboard of all `color` pieces of type `piece_type`.
-    pub fn pieces(&self, color: Color, piece_type: PieceType) -> u64 {
+    pub fn pieces(&self, color: Color, piece_type: PieceType) -> Bitboard {
         self.bitboards[color.index()][piece_type.index()]
     }
 
     /// Bitboard for all pieces of `color`.
-    pub fn occupancy(&self, color: Color) -> u64 {
+    pub fn occupancy(&self, color: Color) -> Bitboard {
         self.occupancy[color.index()]
     }
 
     /// Bitboard for all pieces of both colors.
-    pub fn all_occupancy(&self) -> u64 {
+    pub fn all_occupancy(&self) -> Bitboard {
         self.occupancy(Color::White) | self.occupancy(Color::Black)
     }
 
     /// The square of `color`'s king, or `None` if that side has no king.
     pub fn king_square(&self, color: Color) -> Option<Square> {
         let kings = self.pieces(color, PieceType::King);
-        debug_assert!(kings.count_ones() <= 1, "{color:?} has more than one king");
-        if kings == 0 {
+        debug_assert!(kings.count() <= 1, "{color:?} has more than one king");
+        if kings.is_empty() {
             None
         } else {
-            Square::from_index(kings.trailing_zeros() as usize)
+            Square::from_index(kings.0.trailing_zeros() as usize)
         }
     }
 
@@ -145,9 +145,9 @@ impl Board {
         for color in Color::ALL {
             let combined = self.bitboards[color.index()]
                 .iter()
-                .fold(0, |acc, &bb| acc | bb);
+                .fold(0, |acc, &bb| acc | bb.0);
             let stored = self.occupancy[color.index()];
-            if combined != stored {
+            if combined != stored.0 {
                 return Err(format!(
                     "{color:?} occupancy is {stored:#018x}, but its pieces combine to {combined:#018x}"
                 ));
@@ -162,7 +162,7 @@ impl Board {
             let mut found: Option<Piece> = None;
             for color in Color::ALL {
                 for piece_type in PieceType::ALL {
-                    if self.bitboards[color.index()][piece_type.index()] & bit == 0 {
+                    if self.bitboards[color.index()][piece_type.index()] & bit == Bitboard::EMPTY {
                         continue;
                     }
                     let piece = Piece::new(color, piece_type);
@@ -254,12 +254,12 @@ mod tests {
             assert_eq!(board.piece_at(Square::from_index(index).unwrap()), None);
         }
         for color in Color::ALL {
-            assert_eq!(board.occupancy(color), 0);
+            assert!(board.occupancy(color).is_empty());
             for piece_type in PieceType::ALL {
-                assert_eq!(board.pieces(color, piece_type), 0);
+                assert!(board.pieces(color, piece_type).is_empty());
             }
         }
-        assert_eq!(board.all_occupancy(), 0);
+        assert!(board.all_occupancy().is_empty());
         assert_eq!(board.is_consistent(), Ok(()));
     }
 
@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(board.piece_at(sq("e4")), Some(p('N')));
         assert_eq!(board.pieces(Color::White, PieceType::Knight), bit);
         assert_eq!(board.occupancy(Color::White), bit);
-        assert_eq!(board.occupancy(Color::Black), 0);
+        assert!(board.occupancy(Color::Black).is_empty());
         assert_eq!(board.all_occupancy(), bit);
         assert_eq!(board.is_consistent(), Ok(()));
     }
@@ -305,7 +305,7 @@ mod tests {
             sq("d4").bitboard()
         );
         assert_eq!(board.occupancy(Color::Black), sq("a8").bitboard());
-        assert_eq!(board.all_occupancy().count_ones(), 4);
+        assert_eq!(board.all_occupancy().count(), 4);
         assert_eq!(board.is_consistent(), Ok(()));
     }
 
@@ -346,8 +346,8 @@ mod tests {
         assert_eq!(board.remove_piece(sq("e2")), p('P'));
 
         let pawns = board.pieces(Color::White, PieceType::Pawn);
-        assert_eq!(pawns.count_ones(), 7);
-        assert_eq!(pawns & sq("e2").bitboard(), 0);
+        assert_eq!(pawns.count(), 7);
+        assert_eq!(pawns & sq("e2").bitboard(), Bitboard::EMPTY);
         assert_eq!(board.piece_at(sq("e2")), None);
         assert_eq!(board.piece_at(sq("d2")), Some(p('P')));
         assert_eq!(board.is_consistent(), Ok(()));
@@ -387,7 +387,7 @@ mod tests {
 
         assert_eq!(captured, p('b'));
         assert_eq!(board, board_with(&[("d6", 'N')]));
-        assert_eq!(board.occupancy(Color::Black), 0);
+        assert!(board.occupancy(Color::Black).is_empty());
     }
 
     #[test]

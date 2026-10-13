@@ -1,5 +1,6 @@
 //! Core chess types: colors, pieces, squares, castling rights and moves.
 
+use derive_more::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, LowerHex, Not};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
@@ -213,8 +214,8 @@ impl Square {
     }
 
     /// A bitboard with only this square's bit set.
-    pub const fn bitboard(self) -> u64 {
-        1u64 << self.0
+    pub const fn bitboard(self) -> Bitboard {
+        Bitboard(1u64 << self.0)
     }
 }
 
@@ -377,6 +378,28 @@ impl fmt::Display for Move {
         Ok(())
     }
 }
+
+// ---------------------------------------------------------------------------
+// Bitboard (impl in src/bitbord.rs)
+// ---------------------------------------------------------------------------
+
+#[derive(
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    Hash,
+    Debug,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Not,
+    BitAndAssign,
+    BitOrAssign,
+    LowerHex,
+)]
+pub struct Bitboard(pub u64);
 
 // ---------------------------------------------------------------------------
 // Errors

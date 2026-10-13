@@ -297,7 +297,7 @@ mod tests {
         assert_eq!(board.piece_at(sq("a2")), Some(p('P')));
         assert_eq!(board.piece_at(sq("h7")), Some(p('p')));
         assert_eq!(board.piece_at(sq("e4")), None);
-        assert_eq!(board.all_occupancy().count_ones(), 32);
+        assert_eq!(board.all_occupancy().count(), 32);
         assert_eq!(board.side_to_move(), Color::White);
         assert_eq!(board.castling_rights(), CastlingRights::ALL);
         assert_eq!(board.en_passant_square(), None);
@@ -323,7 +323,7 @@ mod tests {
         assert_eq!(board.piece_at(sq("h3")), Some(p('p')));
         assert_eq!(board.king_square(Color::White), Some(sq("e1")));
         assert_eq!(board.king_square(Color::Black), Some(sq("e8")));
-        assert_eq!(board.all_occupancy().count_ones(), 32);
+        assert_eq!(board.all_occupancy().count(), 32);
     }
 
     #[test]
