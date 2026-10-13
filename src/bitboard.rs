@@ -121,23 +121,16 @@ mod tests {
     fn files_and_ranks_partition_the_board() {
         for index in 0..64 {
             let square = Square::from_index(index).expect("square valid in 0..64");
-            let files_in = Bitboard::FILES.iter().fold(0, |acc, &f| {
-                if f & square.bitboard() != Bitboard::EMPTY {
-                    acc + 1
-                } else {
-                    acc
-                }
-            });
-            assert_eq!(files_in, 1);
-            let square = Square::from_index(index).expect("square valid in 0..64");
-            let ranks_in = Bitboard::RANKS.iter().fold(0, |acc, &r| {
-                if r & square.bitboard() != Bitboard::EMPTY {
-                    acc + 1
-                } else {
-                    acc
-                }
-            });
-            assert_eq!(ranks_in, 1)
+            let files_in = Bitboard::FILES
+                .iter()
+                .filter(|f| f.contains(square))
+                .count();
+            assert_eq!(files_in, 1, "square {square}");
+            let ranks_in = Bitboard::RANKS
+                .iter()
+                .filter(|f| f.contains(square))
+                .count();
+            assert_eq!(ranks_in, 1, "square {square}");
         }
     }
 
@@ -149,7 +142,8 @@ mod tests {
                     Bitboard::FILES[file] & Bitboard::RANKS[rank],
                     Square::from_file_rank(file as u8, rank as u8)
                         .expect("square valid in file 0..8 rank 0..8")
-                        .bitboard()
+                        .bitboard(),
+                    "file {file}, rank {rank}"
                 );
             }
         }
