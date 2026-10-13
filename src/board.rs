@@ -196,7 +196,7 @@ impl fmt::Display for Board {
         for rank in (0..8).rev() {
             write!(f, "{}", rank + 1)?;
             for file in 0..8 {
-                let square = Square::from_file_rank(file, rank).expect("file and rank are below 8");
+                let square = Square::from_file_rank(file, rank).expect("file and rank are in 0..8");
                 let c = self.mailbox[square.index()].map_or('.', Piece::fen_char);
                 write!(f, " {c}")?;
             }
