@@ -30,6 +30,22 @@ impl Bitboard {
     const NOT_A_FILE: Self = Self(!Self::FILE_A.0);
     const NOT_H_FILE: Self = Self(!Self::FILE_H.0);
 
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn union_all(bbs: &[Self]) -> Self {
+        let mut index = 0;
+        let mut bb_acc: u64 = 0;
+
+        while index < bbs.len() {
+            bb_acc |= bbs[index].0;
+            index += 1;
+        }
+
+        Self(bb_acc)
+    }
+
     pub const fn is_empty(self) -> bool {
         self.0 == 0
     }
@@ -117,6 +133,21 @@ impl fmt::Display for Bitboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn union_unites_two_bitboards() {
+        let expected = Bitboard(3);
+        let actual = Bitboard(1).union(Bitboard(2));
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn union_all_unites_all_bitboards() {
+        let expected = Bitboard(7);
+        let actual = Bitboard::union_all(&[Bitboard(1), Bitboard(1), Bitboard(2), Bitboard(4)]);
+        assert_eq!(expected, actual);
+    }
+
     #[test]
     fn files_and_ranks_partition_the_board() {
         for index in 0..64 {

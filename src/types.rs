@@ -145,6 +145,7 @@ impl Piece {
         } else {
             Color::Black
         };
+
         Some(Self { color, piece_type })
     }
 
