@@ -54,6 +54,10 @@ impl Bitboard {
         self.0 & square.bitboard().0 != 0
     }
 
+    pub const fn overlaps(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
     pub const fn count(self) -> u32 {
         self.0.count_ones()
     }

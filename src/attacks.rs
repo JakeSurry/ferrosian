@@ -75,6 +75,57 @@ pub fn pawn_attacks(color: Color, square: Square) -> Bitboard {
     PAWN_ATTACKS[color.index()][square.index()]
 }
 
+type Step = fn(Bitboard) -> Bitboard;
+
+const ROOK_STEPS: [Step; 4] = [
+    Bitboard::north,
+    Bitboard::south,
+    Bitboard::east,
+    Bitboard::west,
+];
+const BISHOP_STEPS: [Step; 4] = [
+    Bitboard::north_east,
+    Bitboard::north_west,
+    Bitboard::south_east,
+    Bitboard::south_west,
+];
+
+fn ray(start: Bitboard, blockers: Bitboard, step: Step) -> Bitboard {
+    let mut current = step(start);
+    let mut attacks = Bitboard::EMPTY;
+
+    while !current.is_empty() {
+        attacks |= current;
+        if current.overlaps(blockers) {
+            break;
+        }
+        current = step(current);
+    }
+    attacks
+}
+
+fn slider_attacks(square: Square, blockers: Bitboard, steps: &[Step]) -> Bitboard {
+    let start = square.bitboard();
+    steps.iter().fold(Bitboard::EMPTY, |acc, &step| {
+        acc | ray(start, blockers, step)
+    })
+}
+
+#[inline]
+pub fn rook_attacks(square: Square, blockers: Bitboard) -> Bitboard {
+    slider_attacks(square, blockers, &ROOK_STEPS)
+}
+
+#[inline]
+pub fn bishop_attacks(square: Square, blockers: Bitboard) -> Bitboard {
+    slider_attacks(square, blockers, &BISHOP_STEPS)
+}
+
+#[inline]
+pub fn queen_attacks(square: Square, blockers: Bitboard) -> Bitboard {
+    rook_attacks(square, blockers) | bishop_attacks(square, blockers)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,6 +329,164 @@ mod tests {
         assert_eq!(
             pawn_attacks(Color::Black, e4),
             Bitboard((1 << 19) | (1 << 21))
+        );
+    }
+
+    /// A sliding-attack function under test.
+    type Slider = fn(Square, Bitboard) -> Bitboard;
+
+    // (file delta, rank delta) for each ray direction. The queen's directions are
+    // the king's deltas, so `KING_DELTAS` is reused for it.
+    const ROOK_DIRECTIONS: [(i8, i8); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
+    const BISHOP_DIRECTIONS: [(i8, i8); 4] = [(1, 1), (-1, 1), (1, -1), (-1, -1)];
+
+    /// Occupancy patterns for the reference comparison, named for failure messages.
+    const OCCUPANCIES: [(&str, Bitboard); 6] = [
+        ("empty", Bitboard::EMPTY),
+        ("full", Bitboard::FULL),
+        ("starting position", Bitboard(0xFFFF_0000_0000_FFFF)),
+        ("checkerboard", Bitboard(0x55AA_55AA_55AA_55AA)),
+        ("centre", Bitboard(0x0000_0018_1800_0000)),
+        ("scattered", Bitboard(0x0042_0010_0800_2400)),
+    ];
+
+    /// Reference sliding attacks by coordinate arithmetic: walk each direction one
+    /// square at a time, including the first occupied square, stopping at the edge.
+    fn expected_slider(square: Square, blockers: Bitboard, directions: Deltas) -> Bitboard {
+        let mut expected = Bitboard::EMPTY;
+        for &(file_delta, rank_delta) in directions {
+            let (mut file, mut rank) = (square.file(), square.rank());
+            loop {
+                let (Some(next_file), Some(next_rank)) = (
+                    file.checked_add_signed(file_delta),
+                    rank.checked_add_signed(rank_delta),
+                ) else {
+                    break;
+                };
+                let Some(target) = Square::from_file_rank(next_file, next_rank) else {
+                    break;
+                };
+                expected |= target.bitboard();
+                if blockers.contains(target) {
+                    break;
+                }
+                (file, rank) = (next_file, next_rank);
+            }
+        }
+        expected
+    }
+
+    fn sliders() -> [(&'static str, Slider, Deltas<'static>); 3] {
+        [
+            ("rook", rook_attacks, &ROOK_DIRECTIONS),
+            ("bishop", bishop_attacks, &BISHOP_DIRECTIONS),
+            ("queen", queen_attacks, &KING_DELTAS),
+        ]
+    }
+
+    #[test]
+    fn empty_board_rook_attacks_are_file_and_rank() {
+        for square in all_squares() {
+            let file = Bitboard::FILES[usize::from(square.file())];
+            let rank = Bitboard::RANKS[usize::from(square.rank())];
+            let expected = (file | rank) & !square.bitboard();
+            let actual = rook_attacks(square, Bitboard::EMPTY);
+            assert_eq!(
+                actual, expected,
+                "rook on {square}, empty board\nexpected:\n{expected}\nactual:\n{actual}"
+            );
+            assert_eq!(actual.count(), 14, "rook on {square}, empty board");
+        }
+    }
+
+    #[test]
+    fn empty_board_bishop_attack_counts() {
+        let cases = [
+            ("a1", 7),
+            ("h1", 7),
+            ("a4", 7),
+            ("h8", 7),
+            ("b2", 9),
+            ("c3", 11),
+            ("d4", 13),
+            ("e5", 13),
+        ];
+        for (name, count) in cases {
+            assert_eq!(
+                bishop_attacks(sq(name), Bitboard::EMPTY).count(),
+                count,
+                "bishop on {name}, empty board"
+            );
+        }
+    }
+
+    #[test]
+    fn slider_attacks_match_reference() {
+        for (occupancy_name, blockers) in OCCUPANCIES {
+            for (name, attacks, directions) in sliders() {
+                for square in all_squares() {
+                    let expected = expected_slider(square, blockers, directions);
+                    let actual = attacks(square, blockers);
+                    assert_eq!(
+                        actual, expected,
+                        "{name} on {square}, {occupancy_name} occupancy\n\
+                         blockers:\n{blockers}\nexpected:\n{expected}\nactual:\n{actual}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn queen_on_full_board_attacks_like_king() {
+        // Every ray stops after one step, in all eight directions.
+        for square in all_squares() {
+            let expected = king_attacks(square);
+            let actual = queen_attacks(square, Bitboard::FULL);
+            assert_eq!(
+                actual, expected,
+                "queen on {square}, full board\nexpected:\n{expected}\nactual:\n{actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn slider_square_does_not_block_itself() {
+        // In a real position the slider's own square is occupied (by the slider).
+        for (occupancy_name, blockers) in OCCUPANCIES {
+            for (name, attacks, _) in sliders() {
+                for square in all_squares() {
+                    let with_own = attacks(square, blockers | square.bitboard());
+                    let without_own = attacks(square, blockers & !square.bitboard());
+                    assert_eq!(
+                        with_own, without_own,
+                        "{name} on {square}, {occupancy_name} occupancy\n\
+                         with own square:\n{with_own}\nwithout own square:\n{without_own}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn slider_blockers_are_included_and_stop_the_ray() {
+        // Literals only, so these don't depend on Square's own conversions.
+        let a1 = Square::from_index(0).expect("a1");
+        let c1 = Square::from_index(2).expect("c1");
+
+        // Rook a1, blockers a4 (24) and f1 (5):
+        // b1..f1 (bits 1-5 = 0x3E), a2 (8), a3 (16), a4 (24).
+        let blockers = Bitboard((1 << 24) | (1 << 5));
+        assert_eq!(
+            rook_attacks(a1, blockers),
+            Bitboard(0x3E | (1 << 8) | (1 << 16) | (1 << 24))
+        );
+
+        // Bishop c1, blocker e3 (20): b2 (9), a3 (16), d2 (11), e3 (20).
+        let blockers = Bitboard(1 << 20);
+        assert_eq!(
+            bishop_attacks(c1, blockers),
+            Bitboard((1 << 9) | (1 << 11) | (1 << 16) | (1 << 20))
         );
     }
 }
