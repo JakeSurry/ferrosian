@@ -9,6 +9,7 @@
 mod fen;
 pub use fen::{Fen, FenError};
 
+use crate::attacks;
 use crate::types::{Bitboard, CastlingRights, Color, Piece, PieceType, Square};
 use std::fmt;
 
@@ -189,6 +190,28 @@ impl Board {
 
         Ok(())
     }
+
+    pub fn attackers_to(&self, square: Square, by: Color) -> Bitboard {
+        let blockers = self.all_occupancy();
+        let queen = self.pieces(by, PieceType::Queen);
+        Bitboard::union_all(&[
+            attacks::king_attacks(square) & self.pieces(by, PieceType::King),
+            attacks::pawn_attacks(by.opposite(), square) & self.pieces(by, PieceType::Pawn),
+            attacks::knight_attacks(square) & self.pieces(by, PieceType::Knight),
+            attacks::bishop_attacks(square, blockers)
+                & (self.pieces(by, PieceType::Bishop) | queen),
+            attacks::rook_attacks(square, blockers) & (self.pieces(by, PieceType::Rook) | queen),
+        ])
+    }
+
+    pub fn is_square_attacked(&self, square: Square, by: Color) -> bool {
+        !self.attackers_to(square, by).is_empty()
+    }
+
+    pub fn in_check(&self, color: Color) -> bool {
+        self.king_square(color)
+            .is_some_and(|square| self.is_square_attacked(square, color.opposite()))
+    }
 }
 
 impl fmt::Display for Board {
@@ -243,6 +266,7 @@ mod test_helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::attacks;
     use crate::board::test_helpers::*;
 
     // --- empty board ---------------------------------------------------
@@ -477,6 +501,8 @@ mod tests {
         assert!(err.contains("occupancy"), "{err}");
     }
 
+    // --- Display::fmt works correctly --------------------------------
+
     #[test]
     fn display_board() {
         let board = board_with(&[("e1", 'K'), ("e8", 'k'), ("a2", 'P'), ("h7", 'p')]);
@@ -497,5 +523,293 @@ En passant: -
 Halfmove clock: 0
 Fullmove number: 1";
         assert_eq!(board.to_string(), expected);
+    }
+
+    // --- attacks and check ----------------------------------------------
+
+    fn from_fen(fen: &str) -> Board {
+        fen.parse().expect("valid FEN in test")
+    }
+
+    const KIWIPETE: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+    const PERFT_POSITION_3: &str = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
+    const PERFT_POSITION_4: &str =
+        "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1";
+
+    #[test]
+    fn is_square_attacked_spot_checks() {
+        // (fen, square, attacking color, expected, what it shows)
+        let cases = [
+            (STARTING_FEN, "e3", Color::White, true, "d2/f2 pawns"),
+            (STARTING_FEN, "e6", Color::Black, true, "d7/f7 pawns"),
+            (STARTING_FEN, "e4", Color::White, false, "out of reach"),
+            (STARTING_FEN, "e4", Color::Black, false, "out of reach"),
+            (
+                STARTING_FEN,
+                "f3",
+                Color::White,
+                true,
+                "g1 knight, e2/g2 pawns",
+            ),
+            (
+                STARTING_FEN,
+                "f6",
+                Color::Black,
+                true,
+                "g8 knight, e7/g7 pawns",
+            ),
+            // Pawn direction, both colors.
+            (
+                "4k3/8/8/8/4P3/8/8/4K3 w - - 0 1",
+                "d5",
+                Color::White,
+                true,
+                "white pawn captures up",
+            ),
+            (
+                "4k3/8/8/8/4P3/8/8/4K3 w - - 0 1",
+                "d3",
+                Color::White,
+                false,
+                "white pawn not down",
+            ),
+            (
+                "4k3/8/8/8/4P3/8/8/4K3 w - - 0 1",
+                "e5",
+                Color::White,
+                false,
+                "pawn push is not an attack",
+            ),
+            (
+                "4k3/8/8/4p3/8/8/8/4K3 w - - 0 1",
+                "d4",
+                Color::Black,
+                true,
+                "black pawn captures down",
+            ),
+            (
+                "4k3/8/8/4p3/8/8/8/4K3 w - - 0 1",
+                "d6",
+                Color::Black,
+                false,
+                "black pawn not up",
+            ),
+            // Own blockers: defended, but nothing behind.
+            (
+                "4k3/8/8/8/8/8/P7/R3K3 w - - 0 1",
+                "a2",
+                Color::White,
+                true,
+                "rook defends own pawn",
+            ),
+            (
+                "4k3/8/8/8/8/8/P7/R3K3 w - - 0 1",
+                "a3",
+                Color::White,
+                false,
+                "rook blocked by own pawn",
+            ),
+            (
+                "4k3/8/8/8/8/8/1N6/Q3K3 w - - 0 1",
+                "b2",
+                Color::White,
+                true,
+                "queen defends own knight",
+            ),
+            (
+                "4k3/8/8/8/8/8/1N6/Q3K3 w - - 0 1",
+                "c3",
+                Color::White,
+                false,
+                "queen blocked by own knight",
+            ),
+            // Enemy blockers: attacked, but nothing behind.
+            (
+                "4k3/8/8/8/p7/8/8/R3K3 w - - 0 1",
+                "a4",
+                Color::White,
+                true,
+                "rook attacks enemy pawn",
+            ),
+            (
+                "4k3/8/8/8/p7/8/8/R3K3 w - - 0 1",
+                "a5",
+                Color::White,
+                false,
+                "rook blocked by enemy pawn",
+            ),
+            // Queen moves as both rook and bishop, but not as a knight.
+            (
+                "4k3/8/8/8/3Q4/8/8/4K3 w - - 0 1",
+                "d8",
+                Color::White,
+                true,
+                "queen along file",
+            ),
+            (
+                "4k3/8/8/8/3Q4/8/8/4K3 w - - 0 1",
+                "h8",
+                Color::White,
+                true,
+                "queen along diagonal",
+            ),
+            (
+                "4k3/8/8/8/3Q4/8/8/4K3 w - - 0 1",
+                "e6",
+                Color::White,
+                false,
+                "queen has no knight jump",
+            ),
+            // King reach.
+            (
+                "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+                "d2",
+                Color::White,
+                true,
+                "king adjacent",
+            ),
+            (
+                "4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+                "d3",
+                Color::White,
+                false,
+                "king two away",
+            ),
+        ];
+        for (fen, square, by, expected, why) in cases {
+            assert_eq!(
+                from_fen(fen).is_square_attacked(sq(square), by),
+                expected,
+                "{square} attacked by {by} ({why}) in {fen}"
+            );
+        }
+    }
+
+    #[test]
+    fn attackers_to_finds_every_attacker() {
+        let board = Board::starting_position();
+        let cases = [
+            ("f3", Color::White, vec!["e2", "g2", "g1"]),
+            ("e3", Color::White, vec!["d2", "f2"]),
+            ("c3", Color::White, vec!["b1", "b2", "d2"]),
+            ("e4", Color::White, vec![]),
+            ("e4", Color::Black, vec![]),
+        ];
+        for (target, by, attackers) in cases {
+            let expected = attackers
+                .iter()
+                .fold(Bitboard::EMPTY, |acc, &name| acc | sq(name).bitboard());
+            let actual = board.attackers_to(sq(target), by);
+            assert_eq!(
+                actual, expected,
+                "attackers of {target} by {by}\nexpected:\n{expected}\nactual:\n{actual}"
+            );
+        }
+    }
+
+    /// Forward route: ask every `by` piece what it attacks and keep the ones that
+    /// hit the target. Independent of `attackers_to`, which looks outward from the target.
+    fn attackers_brute_force(board: &Board, target: Square, by: Color) -> Bitboard {
+        let occupied = board.all_occupancy();
+        let mut attackers = Bitboard::EMPTY;
+        for index in 0..Square::COUNT {
+            let from = Square::from_index(index).expect("index in 0..64");
+            let Some(piece) = board.piece_at(from) else {
+                continue;
+            };
+            if piece.color != by {
+                continue;
+            }
+            let attack_set = match piece.piece_type {
+                PieceType::Pawn => attacks::pawn_attacks(by, from),
+                PieceType::Knight => attacks::knight_attacks(from),
+                PieceType::Bishop => attacks::bishop_attacks(from, occupied),
+                PieceType::Rook => attacks::rook_attacks(from, occupied),
+                PieceType::Queen => attacks::queen_attacks(from, occupied),
+                PieceType::King => attacks::king_attacks(from),
+            };
+            if attack_set.contains(target) {
+                attackers |= from.bitboard();
+            }
+        }
+        attackers
+    }
+
+    #[test]
+    fn attackers_to_matches_brute_force() {
+        for fen in [STARTING_FEN, KIWIPETE, PERFT_POSITION_3, PERFT_POSITION_4] {
+            let board = from_fen(fen);
+            for index in 0..Square::COUNT {
+                let target = Square::from_index(index).expect("index in 0..64");
+                for by in Color::ALL {
+                    let expected = attackers_brute_force(&board, target, by);
+                    let actual = board.attackers_to(target, by);
+                    assert_eq!(
+                        actual, expected,
+                        "attackers of {target} by {by} in {fen}\n\
+                         expected:\n{expected}\nactual:\n{actual}"
+                    );
+                    assert_eq!(
+                        board.is_square_attacked(target, by),
+                        !expected.is_empty(),
+                        "{target} attacked by {by} in {fen}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn in_check_detects_each_side() {
+        // (fen, white in check, black in check, what it shows)
+        let cases = [
+            (STARTING_FEN, false, false, "starting position"),
+            (
+                "4k3/8/8/8/8/8/8/r3K3 w - - 0 1",
+                true,
+                false,
+                "rook along the rank",
+            ),
+            (
+                "4k3/8/8/8/8/8/8/r1N1K3 w - - 0 1",
+                false,
+                false,
+                "rook check blocked",
+            ),
+            (
+                "4k3/8/3N4/8/8/8/8/4K3 b - - 0 1",
+                false,
+                true,
+                "knight check",
+            ),
+            ("4k3/3P4/8/8/8/8/8/4K3 b - - 0 1", false, true, "pawn check"),
+            (
+                "4k3/8/8/8/8/8/8/8 w - - 0 1",
+                false,
+                false,
+                "white king missing",
+            ),
+        ];
+        for (fen, white, black, why) in cases {
+            let board = from_fen(fen);
+            assert_eq!(
+                board.in_check(Color::White),
+                white,
+                "White in check ({why}) in {fen}"
+            );
+            assert_eq!(
+                board.in_check(Color::Black),
+                black,
+                "Black in check ({why}) in {fen}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_board_is_never_in_check() {
+        let board = Board::empty();
+        for color in Color::ALL {
+            assert!(!board.in_check(color), "{color} on empty board");
+        }
     }
 }
