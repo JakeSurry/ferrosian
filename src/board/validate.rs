@@ -1,7 +1,7 @@
 //! Validate a given position
 
 use crate::board::Board;
-use crate::types::{Bitboard, CastleSide, Color, PieceType, Square};
+use crate::types::{Bitboard, CastleSide, Color, Piece, PieceType, Square};
 use core::fmt;
 use thiserror::Error;
 
@@ -127,13 +127,13 @@ impl Board {
 
     fn validate_castle_rights(&self, errors: &mut Vec<PositionError>) {
         for color in Color::ALL {
-            let king_bb = self.pieces(color, PieceType::King);
-            let rook_bb = self.pieces(color, PieceType::Rook);
-            let king_home = Bitboard::king_start(color).overlaps(king_bb);
-
+            let king = Piece::new(color, PieceType::King);
+            let rook = Piece::new(color, PieceType::Rook);
             for side in CastleSide::ALL {
-                let rook_home = Bitboard::rook_start(color, side).overlaps(rook_bb);
-                if self.castling_rights().has(color, side) && !(king_home && rook_home) {
+                let path = side.path(color);
+                let pieces_home = self.piece_at(path.king_from) == Some(king)
+                    && self.piece_at(path.rook_from) == Some(rook);
+                if self.castling_rights().has(color, side) && !pieces_home {
                     errors.push(PositionError::InvalidCastlingRights { color, side });
                 }
             }

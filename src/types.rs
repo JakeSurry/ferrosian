@@ -218,6 +218,11 @@ impl Square {
     pub const fn bitboard(self) -> Bitboard {
         Bitboard(1u64 << self.0)
     }
+
+    /// Flip rank to r - 7
+    pub const fn flip_rank(self) -> Self {
+        Self(self.0 ^ 56)
+    }
 }
 
 impl fmt::Display for Square {
@@ -244,14 +249,23 @@ impl FromStr for Square {
 // Castling
 // ---------------------------------------------------------------------------
 
+/// The side of the board a castling move goes to.
+///
+/// The squares involved are given by [`CastleSide::path`], defined in
+/// [`crate::castling`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum CastleSide {
-    KingSide,
-    QueenSide,
+    KingSide = 0,
+    QueenSide = 1,
 }
 
 impl CastleSide {
     pub const ALL: [Self; 2] = [Self::KingSide, Self::QueenSide];
+    pub const COUNT: usize = Self::ALL.len();
+
+    pub fn index(self) -> usize {
+        self as usize
+    }
 }
 
 impl fmt::Display for CastleSide {
@@ -397,6 +411,10 @@ impl fmt::Display for Move {
 // Bitboard (impl in src/bitbord.rs)
 // ---------------------------------------------------------------------------
 
+/// A u64 newtype where each bit represents a square.
+///
+/// a1 = 0, h8 = 2.pow(63)
+/// impl in [`crate::bitboards`]
 #[derive(
     Clone,
     Copy,
@@ -487,6 +505,15 @@ mod tests {
     #[test]
     fn square_from_file_rank_invalid_is_none() {
         assert_eq!(Square::from_file_rank(8, 0), None);
+    }
+
+    #[test]
+    fn square_flip_rank() {
+        let expected = Square::from_file_rank(0, 0).expect("0, 0 valid");
+        let actual = Square::from_file_rank(0, 7)
+            .expect("0, 7 valid")
+            .flip_rank();
+        assert_eq!(expected, actual);
     }
 
     #[test]

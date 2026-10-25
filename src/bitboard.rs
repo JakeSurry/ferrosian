@@ -1,4 +1,6 @@
-use crate::types::{Bitboard, CastleSide, Color, Square};
+//! Bitboard logic, defined in types.rs
+
+use crate::types::{Bitboard, Square};
 use std::fmt;
 
 impl Bitboard {
@@ -27,24 +29,8 @@ impl Bitboard {
     pub const RANK_7: Self = Self::RANKS[6];
     pub const RANK_8: Self = Self::RANKS[7];
 
-    const KS_ROOK: u64 = 0b1000_0000;
-    const QS_ROOK: u64 = 0b0000_0001;
-    const KING: u64 = 0b0001_0000;
-
     const NOT_A_FILE: Self = Self(!Self::FILE_A.0);
     const NOT_H_FILE: Self = Self(!Self::FILE_H.0);
-
-    pub const fn king_start(color: Color) -> Self {
-        Self(Self::KING << (8 * 7 * color.index()))
-    }
-
-    pub const fn rook_start(color: Color, castle_side: CastleSide) -> Self {
-        let rook_mask = match castle_side {
-            CastleSide::KingSide => Self::KS_ROOK,
-            CastleSide::QueenSide => Self::QS_ROOK,
-        };
-        Self(rook_mask << (8 * 7 * color.index()))
-    }
 
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
@@ -76,6 +62,10 @@ impl Bitboard {
 
     pub const fn count(self) -> u8 {
         self.0.count_ones() as u8
+    }
+
+    pub const fn flip_vertical(self) -> Self {
+        Self(self.0.swap_bytes())
     }
 
     pub fn to_squares(self) -> Vec<Square> {
@@ -247,6 +237,13 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn flip_vertical() {
+        let expected = Bitboard(1);
+        let actual = Bitboard(2_u64.pow(56)).flip_vertical();
+        assert_eq!(expected, actual);
     }
 
     #[test]
