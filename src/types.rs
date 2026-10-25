@@ -250,6 +250,19 @@ pub enum CastleSide {
     QueenSide,
 }
 
+impl CastleSide {
+    pub const ALL: [Self; 2] = [Self::KingSide, Self::QueenSide];
+}
+
+impl fmt::Display for CastleSide {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::KingSide => write!(f, "kingside"),
+            Self::QueenSide => write!(f, "queenside"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
 pub struct CastlingRights(u8);
 

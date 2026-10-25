@@ -1,4 +1,4 @@
-use crate::types::{Bitboard, Square};
+use crate::types::{Bitboard, CastleSide, Color, Square};
 use std::fmt;
 
 impl Bitboard {
@@ -27,8 +27,24 @@ impl Bitboard {
     pub const RANK_7: Self = Self::RANKS[6];
     pub const RANK_8: Self = Self::RANKS[7];
 
+    const KS_ROOK: u64 = 0b1000_0000;
+    const QS_ROOK: u64 = 0b0000_0001;
+    const KING: u64 = 0b0001_0000;
+
     const NOT_A_FILE: Self = Self(!Self::FILE_A.0);
     const NOT_H_FILE: Self = Self(!Self::FILE_H.0);
+
+    pub const fn king_start(color: Color) -> Self {
+        Self(Self::KING << (8 * 7 * color.index()))
+    }
+
+    pub const fn rook_start(color: Color, castle_side: CastleSide) -> Self {
+        let rook_mask = match castle_side {
+            CastleSide::KingSide => Self::KS_ROOK,
+            CastleSide::QueenSide => Self::QS_ROOK,
+        };
+        Self(rook_mask << (8 * 7 * color.index()))
+    }
 
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
@@ -58,8 +74,23 @@ impl Bitboard {
         self.0 & other.0 != 0
     }
 
-    pub const fn count(self) -> u32 {
-        self.0.count_ones()
+    pub const fn count(self) -> u8 {
+        self.0.count_ones() as u8
+    }
+
+    pub fn to_squares(self) -> Vec<Square> {
+        let mut squares: Vec<Square> = Vec::new();
+        let mut bb_num: u64 = self.0;
+        let mut offset = 0;
+
+        while bb_num != 0 {
+            let zeros = bb_num.trailing_zeros();
+            offset += zeros;
+            squares.push(Square::from_index(offset as usize).expect("max 63 in 0..64"));
+            bb_num >>= zeros + 1;
+            offset += 1;
+        }
+        squares
     }
 
     pub const fn north(self) -> Self {

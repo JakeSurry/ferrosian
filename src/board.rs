@@ -9,6 +9,8 @@
 mod fen;
 pub use fen::{Fen, FenError};
 
+mod validate;
+
 use crate::attacks;
 use crate::types::{Bitboard, CastlingRights, Color, Piece, PieceType, Square};
 use std::fmt;
@@ -106,7 +108,6 @@ impl Board {
     /// The square of `color`'s king, or `None` if that side has no king.
     pub fn king_square(&self, color: Color) -> Option<Square> {
         let kings = self.pieces(color, PieceType::King);
-        debug_assert!(kings.count() <= 1, "{color:?} has more than one king");
         if kings.is_empty() {
             None
         } else {
@@ -208,7 +209,7 @@ impl Board {
         !self.attackers_to(square, by).is_empty()
     }
 
-    pub fn in_check(&self, color: Color) -> bool {
+    pub fn is_in_check(&self, color: Color) -> bool {
         self.king_square(color)
             .is_some_and(|square| self.is_square_attacked(square, color.opposite()))
     }
@@ -793,12 +794,12 @@ Fullmove number: 1";
         for (fen, white, black, why) in cases {
             let board = from_fen(fen);
             assert_eq!(
-                board.in_check(Color::White),
+                board.is_in_check(Color::White),
                 white,
                 "White in check ({why}) in {fen}"
             );
             assert_eq!(
-                board.in_check(Color::Black),
+                board.is_in_check(Color::Black),
                 black,
                 "Black in check ({why}) in {fen}"
             );
@@ -809,7 +810,7 @@ Fullmove number: 1";
     fn empty_board_is_never_in_check() {
         let board = Board::empty();
         for color in Color::ALL {
-            assert!(!board.in_check(color), "{color} on empty board");
+            assert!(!board.is_in_check(color), "{color} on empty board");
         }
     }
 }
