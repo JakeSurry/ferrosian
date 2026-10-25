@@ -135,7 +135,7 @@ mod tests {
     }
 
     fn all_squares() -> impl Iterator<Item = Square> {
-        (0..Square::COUNT).map(|index| Square::from_index(index).expect("index in 0..64"))
+        Bitboard::FULL.into_iter()
     }
 
     /// A lookup function under test.

@@ -120,7 +120,7 @@ impl Board {
             self.pieces(Color::White, PieceType::Pawn) | self.pieces(Color::Black, PieceType::Pawn);
         let terminal_pawns = (Bitboard::RANK_1 | Bitboard::RANK_8) & pawn_bb;
 
-        for square in terminal_pawns.to_squares() {
+        for square in terminal_pawns {
             errors.push(PositionError::PawnOnBackRank(square));
         }
     }

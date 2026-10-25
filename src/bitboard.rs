@@ -1,7 +1,7 @@
 //! Bitboard logic, defined in types.rs
 
 use crate::types::{Bitboard, Square};
-use std::fmt;
+use std::{fmt, iter::FusedIterator};
 
 impl Bitboard {
     pub const EMPTY: Self = Self(0);
@@ -68,21 +68,6 @@ impl Bitboard {
         Self(self.0.swap_bytes())
     }
 
-    pub fn to_squares(self) -> Vec<Square> {
-        let mut squares: Vec<Square> = Vec::new();
-        let mut bb_num: u64 = self.0;
-        let mut offset = 0;
-
-        while bb_num != 0 {
-            let zeros = bb_num.trailing_zeros();
-            offset += zeros;
-            squares.push(Square::from_index(offset as usize).expect("max 63 in 0..64"));
-            bb_num >>= zeros + 1;
-            offset += 1;
-        }
-        squares
-    }
-
     pub const fn north(self) -> Self {
         Self(self.0 << 8)
     }
@@ -113,6 +98,16 @@ impl Bitboard {
 
     pub const fn south_west(self) -> Self {
         Self((self.0 >> 9) & Self::NOT_H_FILE.0)
+    }
+
+    pub const fn lsb(self) -> Option<Square> {
+        Square::from_index(self.0.trailing_zeros() as usize)
+    }
+
+    pub fn pop_lsb(&mut self) -> Option<Square> {
+        let square: Square = self.lsb()?;
+        self.0 &= self.0 - 1;
+        Some(square)
     }
 
     const fn build_files() -> [Self; 8] {
@@ -152,6 +147,40 @@ impl fmt::Display for Bitboard {
             writeln!(f)?;
         }
         writeln!(f, "  a b c d e f g h")
+    }
+}
+
+impl FromIterator<Square> for Bitboard {
+    fn from_iter<T: IntoIterator<Item = Square>>(iter: T) -> Self {
+        iter.into_iter()
+            .fold(Bitboard::EMPTY, |bb, sq| bb | sq.bitboard())
+    }
+}
+
+pub struct Squares(Bitboard);
+
+impl Iterator for Squares {
+    type Item = Square;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.pop_lsb()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.0.count() as usize;
+        (n, Some(n))
+    }
+}
+
+impl ExactSizeIterator for Squares {}
+impl FusedIterator for Squares {}
+
+impl IntoIterator for Bitboard {
+    type Item = Square;
+    type IntoIter = Squares;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Squares(self)
     }
 }
 
@@ -244,6 +273,126 @@ mod tests {
         let expected = Bitboard(1);
         let actual = Bitboard(2_u64.pow(56)).flip_vertical();
         assert_eq!(expected, actual);
+    }
+
+    // ---- Square iteration: lsb, pop_lsb, IntoIterator, FromIterator ----
+
+    /// Bitboards for the iteration tests.    
+    const ITERATION_CASES: &[(&str, Bitboard)] = &[
+        ("empty", Bitboard::EMPTY),
+        ("full", Bitboard::FULL),
+        ("a1 alone", Bitboard(1)),
+        ("h8 alone", Bitboard(1 << 63)),
+        ("a1 and h8", Bitboard(1 | 1 << 63)),
+        ("e-file", Bitboard::FILE_E),
+        ("rank 7", Bitboard::RANK_7),
+        ("checkerboard", Bitboard(0x55AA_55AA_55AA_55AA)),
+        ("scattered", Bitboard(0x8040_2010_0C04_0281)),
+        ("sparse high", Bitboard(0xF000_0000_0000_0010)),
+    ];
+
+    /// Reference: the set squares found by testing each bit index in turn.
+    /// Independent of `lsb`/`pop_lsb`, and ascending by construction.
+    fn squares_by_bit_test(bb: Bitboard) -> Vec<Square> {
+        (0..64)
+            .filter(|&i| bb.0 & (1 << i) != 0)
+            .map(|i| Square::from_index(i).expect("index below 64"))
+            .collect()
+    }
+
+    #[test]
+    fn lsb_of_empty_is_none() {
+        assert_eq!(Bitboard::EMPTY.lsb(), None);
+    }
+
+    #[test]
+    fn lsb_of_single_bit_is_that_square() {
+        for i in 0..64 {
+            let bb = Bitboard(1 << i);
+            assert_eq!(bb.lsb().map(Square::index), Some(i), "bit {i}");
+        }
+    }
+
+    #[test]
+    fn lsb_picks_lowest_of_several() {
+        let cases: &[(Bitboard, usize, &str)] = &[
+            (Bitboard::FULL, 0, "full board starts at a1"),
+            (Bitboard(1 << 63 | 1 << 5), 5, "f1 below h8"),
+            (Bitboard::FILE_H, 7, "h-file starts at h1"),
+            (Bitboard::RANK_8, 56, "rank 8 starts at a8"),
+        ];
+        for &(bb, expected, why) in cases {
+            assert_eq!(bb.lsb().map(Square::index), Some(expected), "{why}\n{bb}");
+        }
+    }
+
+    #[test]
+    fn pop_lsb_removes_one_square_at_a_time() {
+        let mut bb = Bitboard(1 << 63 | 1 << 5);
+
+        assert_eq!(bb.pop_lsb().map(Square::index), Some(5), "first pop is f1");
+        assert_eq!(bb, Bitboard(1 << 63), "only h8 left\n{bb}");
+
+        assert_eq!(
+            bb.pop_lsb().map(Square::index),
+            Some(63),
+            "second pop is h8"
+        );
+        assert_eq!(bb, Bitboard::EMPTY, "nothing left\n{bb}");
+
+        assert_eq!(bb.pop_lsb(), None);
+        assert_eq!(bb, Bitboard::EMPTY);
+    }
+
+    #[test]
+    fn iteration_matches_bit_test_in_ascending_order() {
+        for &(name, bb) in ITERATION_CASES {
+            let actual: Vec<Square> = bb.into_iter().collect();
+            assert_eq!(actual, squares_by_bit_test(bb), "{name}\n{bb}");
+        }
+    }
+
+    #[test]
+    fn collect_round_trips() {
+        for &(name, bb) in ITERATION_CASES {
+            let rebuilt: Bitboard = bb.into_iter().collect();
+            assert_eq!(rebuilt, bb, "{name}\nexpected:\n{bb}\nactual:\n{rebuilt}");
+        }
+    }
+
+    #[test]
+    fn collect_from_square_list() {
+        let a1 = Square::from_index(0).unwrap();
+        let h8 = Square::from_index(63).unwrap();
+
+        let none: Bitboard = std::iter::empty().collect();
+        assert_eq!(none, Bitboard::EMPTY, "no squares");
+
+        let corners: Bitboard = [a1, h8].into_iter().collect();
+        assert_eq!(corners, Bitboard(1 | 1 << 63), "a1 and h8\n{corners}");
+
+        let repeated: Bitboard = [a1, a1, h8].into_iter().collect();
+        assert_eq!(repeated, corners, "duplicates\n{repeated}");
+    }
+
+    #[test]
+    fn len_counts_down_and_iterator_stays_empty() {
+        for &(name, bb) in ITERATION_CASES {
+            let mut squares = bb.into_iter();
+            let mut remaining = usize::from(bb.count());
+            assert_eq!(squares.len(), remaining, "{name}: initial len");
+
+            while squares.next().is_some() {
+                remaining = remaining
+                    .checked_sub(1)
+                    .unwrap_or_else(|| panic!("{name}: yielded more than count()"));
+                assert_eq!(squares.len(), remaining, "{name}: len after next");
+            }
+
+            assert_eq!(remaining, 0, "{name}: yielded fewer than count()");
+            assert_eq!(squares.next(), None, "{name}: after exhaustion");
+            assert_eq!(squares.next(), None, "{name}: still exhausted");
+        }
     }
 
     #[test]

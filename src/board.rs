@@ -107,12 +107,7 @@ impl Board {
 
     /// The square of `color`'s king, or `None` if that side has no king.
     pub fn king_square(&self, color: Color) -> Option<Square> {
-        let kings = self.pieces(color, PieceType::King);
-        if kings.is_empty() {
-            None
-        } else {
-            Square::from_index(kings.0.trailing_zeros() as usize)
-        }
+        self.pieces(color, PieceType::King).lsb()
     }
 
     /// Side to move
@@ -145,11 +140,9 @@ impl Board {
     pub fn is_consistent(&self) -> Result<(), String> {
         // Each color's occupancy must equal the OR of that color's piece bitboards.
         for color in Color::ALL {
-            let combined = self.bitboards[color.index()]
-                .iter()
-                .fold(0, |acc, &bb| acc | bb.0);
+            let combined = Bitboard::union_all(&self.bitboards[color.index()]);
             let stored = self.occupancy[color.index()];
-            if combined != stored.0 {
+            if combined != stored {
                 return Err(format!(
                     "{color:?} occupancy is {stored:#018x}, but its pieces combine to {combined:#018x}"
                 ));
