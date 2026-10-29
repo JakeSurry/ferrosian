@@ -77,16 +77,18 @@ pub enum PieceType {
 impl PieceType {
     /// Every piece type, in index order.
     pub const ALL: [PieceType; 6] = [
-        PieceType::Pawn,
-        PieceType::Knight,
-        PieceType::Bishop,
-        PieceType::Rook,
-        PieceType::Queen,
-        PieceType::King,
+        Self::Pawn,
+        Self::Knight,
+        Self::Bishop,
+        Self::Rook,
+        Self::Queen,
+        Self::King,
     ];
 
     /// Number of piece types, for sizing arrays.
     pub const COUNT: usize = Self::ALL.len();
+
+    pub const PROMOTIONS: [Self; 4] = [Self::Queen, Self::Rook, Self::Bishop, Self::Knight];
 
     /// Index for array lookups, 0 through 5.
     pub const fn index(self) -> usize {
@@ -101,12 +103,12 @@ impl PieceType {
     /// Lowercase letter as used in FEN and UCI.
     pub const fn letter(self) -> char {
         match self {
-            PieceType::Pawn => 'p',
-            PieceType::Knight => 'n',
-            PieceType::Bishop => 'b',
-            PieceType::Rook => 'r',
-            PieceType::Queen => 'q',
-            PieceType::King => 'k',
+            Self::Pawn => 'p',
+            Self::Knight => 'n',
+            Self::Bishop => 'b',
+            Self::Rook => 'r',
+            Self::Queen => 'q',
+            Self::King => 'k',
         }
     }
 
@@ -365,34 +367,43 @@ impl FromStr for CastlingRights {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum MoveKind {
+    Normal,
+    DoublePush,
+    EnPassant,
+    Castle(CastleSide),
+    Promotion(PieceType),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Move {
     from: Square,
     to: Square,
-    promotion: Option<PieceType>,
+    kind: MoveKind,
 }
 
 impl Move {
-    pub fn new(from: Square, to: Square, promotion: Option<PieceType>) -> Self {
-        Move {
-            from,
-            to,
-            promotion,
-        }
+    pub const fn new(from: Square, to: Square, kind: MoveKind) -> Self {
+        debug_assert!(
+            !matches!(kind, MoveKind::Promotion(PieceType::Pawn | PieceType::King)),
+            "promotion piece must be a knight, bishop, rook or queen"
+        );
+        Move { from, to, kind }
     }
 
     /// `square` where move originated.
-    pub fn from(&self) -> Square {
+    pub fn from(self) -> Square {
         self.from
     }
 
     /// `square` were move ended up.
-    pub fn to(&self) -> Square {
+    pub fn to(self) -> Square {
         self.to
     }
 
     /// `PieceType` of promotion piece, `None` if move was not a promotion.
-    pub fn promotion(&self) -> Option<PieceType> {
-        self.promotion
+    pub fn kind(self) -> MoveKind {
+        self.kind
     }
 }
 
@@ -400,8 +411,8 @@ impl fmt::Display for Move {
     /// Writes the move in UCI notation, e.g. `e2e4`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.from, self.to)?;
-        if let Some(promotion) = self.promotion {
-            write!(f, "{promotion}")?;
+        if let MoveKind::Promotion(piece) = self.kind {
+            write!(f, "{piece}")?;
         }
         Ok(())
     }
@@ -548,18 +559,17 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn move_invalid_promotion() {
+        let sq = |s: &str| s.parse::<Square>().unwrap();
+        let _invalid_move = Move::new(sq("e2"), sq("e4"), MoveKind::Promotion(PieceType::Pawn));
+    }
+
+    #[test]
     fn move_display() {
         let sq = |s: &str| s.parse::<Square>().unwrap();
-        let quiet = Move {
-            from: sq("e2"),
-            to: sq("e4"),
-            promotion: None,
-        };
-        let promo = Move {
-            from: sq("e7"),
-            to: sq("e8"),
-            promotion: Some(PieceType::Queen),
-        };
+        let quiet = Move::new(sq("e2"), sq("e4"), MoveKind::Normal);
+        let promo = Move::new(sq("e7"), sq("e8"), MoveKind::Promotion(PieceType::Queen));
         assert_eq!(quiet.to_string(), "e2e4");
         assert_eq!(promo.to_string(), "e7e8q");
     }
