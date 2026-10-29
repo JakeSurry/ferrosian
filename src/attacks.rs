@@ -356,13 +356,10 @@ mod tests {
         let mut expected = Bitboard::EMPTY;
         for &(file_delta, rank_delta) in directions {
             let (mut file, mut rank) = (square.file(), square.rank());
-            loop {
-                let (Some(next_file), Some(next_rank)) = (
-                    file.checked_add_signed(file_delta),
-                    rank.checked_add_signed(rank_delta),
-                ) else {
-                    break;
-                };
+            while let (Some(next_file), Some(next_rank)) = (
+                file.checked_add_signed(file_delta),
+                rank.checked_add_signed(rank_delta),
+            ) {
                 let Some(target) = Square::from_file_rank(next_file, next_rank) else {
                     break;
                 };

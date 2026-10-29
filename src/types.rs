@@ -88,6 +88,7 @@ impl PieceType {
     /// Number of piece types, for sizing arrays.
     pub const COUNT: usize = Self::ALL.len();
 
+    /// Candidate promotion pieces for move generators, queen comes first as it's often best.
     pub const PROMOTIONS: [Self; 4] = [Self::Queen, Self::Rook, Self::Bishop, Self::Knight];
 
     /// Index for array lookups, 0 through 5.
@@ -366,12 +367,18 @@ impl FromStr for CastlingRights {
 // Move
 // ---------------------------------------------------------------------------
 
+/// Describe the function of a move.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum MoveKind {
+    /// normal moves and ordinary captures.
     Normal,
+    /// double pawn push, adds en passant square.
     DoublePush,
+    /// en passant, removes captured pawn.
     EnPassant,
+    /// castle to a given `CastleSide`, rook move comes from [`CastleSide::Path`].
     Castle(CastleSide),
+    /// promotion to a given `PieceType`
     Promotion(PieceType),
 }
 
@@ -396,12 +403,12 @@ impl Move {
         self.from
     }
 
-    /// `square` were move ended up.
+    /// `square` where move ended up.
     pub fn to(self) -> Square {
         self.to
     }
 
-    /// `PieceType` of promotion piece, `None` if move was not a promotion.
+    /// `MoveKind` of move.
     pub fn kind(self) -> MoveKind {
         self.kind
     }
@@ -558,8 +565,9 @@ mod tests {
         assert_eq!(rights, CastlingRights::NONE);
     }
 
+    #[cfg(debug_assertions)]
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "promotion piece must be")]
     fn move_invalid_promotion() {
         let sq = |s: &str| s.parse::<Square>().unwrap();
         let _invalid_move = Move::new(sq("e2"), sq("e4"), MoveKind::Promotion(PieceType::Pawn));
