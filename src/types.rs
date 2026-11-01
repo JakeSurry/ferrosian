@@ -184,7 +184,7 @@ impl Square {
     /// Number of squares, for sizing arrays.
     pub const COUNT: usize = 64;
 
-    /// Default square for testing and MoveGen.
+    /// The A1 square.
     pub const A1: Self = Self(0);
 
     /// The square at `index`, or `None` if it is not in range 0..64.

@@ -1,13 +1,15 @@
-//! Generate legal moves in a position; the fixed-capacity `MoveList`.
+//! Generate pseudo-legal moves in a position; the fixed-capacity `MoveList`.
 
 use crate::types::{Move, MoveKind, Square};
-use core::fmt;
-use std::ops::Deref;
+use std::{fmt, ops::Deref};
 
+/// Maximum number of moves in a MoveList.
 pub const MAX_MOVES: usize = 256;
 
+/// Filler (default) value of a MoveList entry outside of len.
 const FILLER: Move = Move::new(Square::A1, Square::A1, MoveKind::Normal);
 
+/// An ordered ArrayVec of Moves.
 #[derive(Clone)]
 pub struct MoveList {
     moves: [Move; MAX_MOVES],
@@ -37,7 +39,7 @@ impl MoveList {
     }
 
     pub fn as_slice(&self) -> &[Move] {
-        &self.moves[0..self.len]
+        &self.moves[..self.len]
     }
 }
 
@@ -126,7 +128,7 @@ mod tests {
 
         let mut actual: Vec<Move> = Vec::new();
 
-        for m in moves {
+        for &m in &move_list {
             actual.push(m);
         }
 
@@ -154,7 +156,7 @@ mod tests {
         let mut move_list = MoveList::new();
         let m = mv("a1", "a2");
 
-        for _ in 0..256 {
+        for _ in 0..MAX_MOVES {
             move_list.push(m);
         }
 
@@ -167,7 +169,7 @@ mod tests {
         let mut move_list = MoveList::new();
         let m = mv("a1", "a2");
 
-        for _ in 0..257 {
+        for _ in 0..(MAX_MOVES + 1) {
             move_list.push(m);
         }
     }
@@ -196,6 +198,6 @@ mod tests {
         move_list.clear();
         move_list.push(moves[0]);
 
-        assert_eq!(format!("{move_list:?}"), format!("[{:?}]", moves[0]));
+        assert_eq!(format!("{move_list:?}"), format!("{:?}", [moves[0]]));
     }
 }
