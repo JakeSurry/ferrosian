@@ -184,6 +184,9 @@ impl Square {
     /// Number of squares, for sizing arrays.
     pub const COUNT: usize = 64;
 
+    /// Default square for testing and MoveGen.
+    pub const A1: Self = Self(0);
+
     /// The square at `index`, or `None` if it is not in range 0..64.
     pub const fn from_index(index: usize) -> Option<Self> {
         if index < Self::COUNT {
@@ -376,7 +379,7 @@ pub enum MoveKind {
     DoublePush,
     /// en passant, removes captured pawn.
     EnPassant,
-    /// castle to a given `CastleSide`, rook move comes from [`CastleSide::Path`].
+    /// castle to a given `CastleSide`, rook move comes from [`CastleSide::path`].
     Castle(CastleSide),
     /// promotion to a given `PieceType`
     Promotion(PieceType),
@@ -426,13 +429,13 @@ impl fmt::Display for Move {
 }
 
 // ---------------------------------------------------------------------------
-// Bitboard (impl in src/bitbord.rs)
+// Bitboard
 // ---------------------------------------------------------------------------
 
 /// A u64 newtype where each bit represents a square.
 ///
 /// a1 = 0, h8 = 2.pow(63)
-/// impl in [`crate::bitboards`]
+/// impl in [`crate::bitboard`]
 #[derive(
     Clone,
     Copy,
