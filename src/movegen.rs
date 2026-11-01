@@ -1,4 +1,7 @@
-//! Generate pseudo-legal moves in a position; the fixed-capacity `MoveList`.
+//! Generate pseudo-legal moves in a position.
+//!
+//! Define a type `MoveList`, an ordered ArrayVec of `Move`s [`crate::types::Move`].
+//! impl Board::pseudo_legal_moves() -> `MoveList` of pseudo-legal moves [`crate::board`]
 
 use crate::types::{Move, MoveKind, Square};
 use std::{fmt, ops::Deref};
@@ -77,6 +80,40 @@ impl Eq for MoveList {}
 impl fmt::Debug for MoveList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+use crate::attacks::{king_attacks, knight_attacks};
+use crate::board::Board;
+use crate::types::{Bitboard, PieceType};
+
+impl Board {
+    pub fn pseudo_legal_moves(&self, moves: &mut MoveList) {
+        moves.clear();
+
+        self.push_piece_moves(PieceType::King, king_attacks, moves);
+        self.push_piece_moves(PieceType::Knight, knight_attacks, moves);
+        // TODO: slider moves
+        // TODO: pawn moves
+        // TODO: castling moves
+    }
+
+    fn push_piece_moves(
+        &self,
+        piece_type: PieceType,
+        attacks_from: impl Fn(Square) -> Bitboard,
+        moves: &mut MoveList,
+    ) {
+        let us = self.side_to_move();
+        let own = self.occupancy(us);
+
+        for from in self.pieces(us, piece_type) {
+            let targets = attacks_from(from) & !own;
+
+            for to in targets {
+                moves.push(Move::new(from, to, MoveKind::Normal));
+            }
+        }
     }
 }
 
@@ -199,5 +236,93 @@ mod tests {
         move_list.push(moves[0]);
 
         assert_eq!(format!("{move_list:?}"), format!("{:?}", [moves[0]]));
+    }
+
+    /// The side to move's pseudo-legal moves made by `piece_type`, as sorted UCI strings.
+    fn generated(fen: &str, piece_type: PieceType) -> Vec<String> {
+        let board: Board = fen.parse().expect("valid fen in test");
+        let mut moves = MoveList::new();
+
+        board.pseudo_legal_moves(&mut moves);
+        let mut ucis: Vec<String> = moves
+            .iter()
+            .filter(|mv| {
+                board
+                    .piece_at(mv.from())
+                    .is_some_and(|piece| piece.piece_type == piece_type)
+            })
+            .map(|mv| mv.to_string())
+            .collect();
+
+        ucis.sort();
+        ucis
+    }
+
+    type Cases<'a> = &'a [(&'a str, &'a str, PieceType, &'a [&'a str])];
+    use crate::board::KIWIPETE;
+    use PieceType::{King, Knight};
+
+    #[test]
+    fn pseudo_legal_moves() {
+        let cases: Cases = &[
+            (
+                "Start, white knights",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                Knight,
+                &["b1a3", "b1c3", "g1f3", "g1h3"],
+            ),
+            (
+                "Start, black knights",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+                Knight,
+                &["b8a6", "b8c6", "g8f6", "g8h6"],
+            ),
+            (
+                "Start, king boxed in",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                King,
+                &[],
+            ),
+            (
+                "Corner knight",
+                "8/8/8/8/8/8/8/N7 w - - 0 1",
+                Knight,
+                &["a1b3", "a1c2"],
+            ),
+            (
+                "Own piece excluded, enemy included",
+                "8/8/8/3p4/2P5/4N3/8/8 w - - 0 1",
+                Knight,
+                &["e3c2", "e3d1", "e3d5", "e3f1", "e3f5", "e3g2", "e3g4"],
+            ),
+            (
+                "Black king in a corner",
+                "7k/8/8/8/8/8/8/8 b - - 0 1",
+                King,
+                &["h8g7", "h8g8", "h8h7"],
+            ),
+            (
+                "King may step into attack (pseudo-legal)",
+                "8/8/8/8/8/8/r7/4K3 w - - 0 1",
+                King,
+                &["e1d1", "e1d2", "e1e2", "e1f1", "e1f2"],
+            ),
+            ("No king, no panic", "8/8/8/8/8/8/8/N7 w - - 0 1", King, &[]),
+            (
+                "Kiwipete knights (captures on d7, f7, g6)",
+                KIWIPETE,
+                Knight,
+                &[
+                    "c3a4", "c3b1", "c3b5", "c3d1", "e5c4", "e5c6", "e5d3", "e5d7", "e5f7", "e5g4",
+                    "e5g6",
+                ],
+            ),
+            ("Kiwipete king", KIWIPETE, King, &["e1d1", "e1f1"]),
+        ];
+
+        for &(name, fen, piece_type, expected) in cases {
+            let actual = generated(fen, piece_type);
+            assert_eq!(expected, actual, "{name}");
+        }
     }
 }
