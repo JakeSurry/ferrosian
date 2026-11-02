@@ -129,22 +129,23 @@ impl Board {
         let us = self.side_to_move();
         let enemies = self.occupancy(us.opposite());
         let empty = !self.all_occupancy();
+        let ep_square = self.en_passant_square();
 
         let (forward, double_push_rank, promotion_rank): (
             fn(Bitboard) -> Bitboard,
             Bitboard,
             Bitboard,
-        ) = {
-            match us {
-                Color::White => (Bitboard::north, Bitboard::RANK_3, Bitboard::RANK_8),
-                Color::Black => (Bitboard::south, Bitboard::RANK_6, Bitboard::RANK_1),
-            }
+        ) = match us {
+            Color::White => (Bitboard::north, Bitboard::RANK_3, Bitboard::RANK_8),
+            Color::Black => (Bitboard::south, Bitboard::RANK_6, Bitboard::RANK_1),
         };
 
         for from in self.pieces(us, PieceType::Pawn) {
             let single = forward(from.bitboard()) & empty;
             let double = forward(single & double_push_rank) & empty;
-            let captures = pawn_attacks(us, from) & enemies;
+
+            let attacks = pawn_attacks(us, from);
+            let captures = attacks & enemies;
 
             for to in single | captures {
                 Self::push_pawn_move(from, to, promotion_rank, moves);
@@ -154,9 +155,8 @@ impl Board {
                 moves.push(Move::new(from, to, MoveKind::DoublePush));
             }
 
-            let ep_square = self.en_passant_square();
             if let Some(ep) = ep_square
-                && pawn_attacks(us, from).contains(ep)
+                && attacks.contains(ep)
             {
                 moves.push(Move::new(from, ep, MoveKind::EnPassant));
             }
@@ -650,6 +650,7 @@ mod tests {
         }
     }
 
+    /// The kind of the generated move whose UCI string is `uci`, or `None` if it wasn't generated.
     fn kind_of(fen: &str, uci: &str) -> Option<MoveKind> {
         let board: Board = fen.parse().expect("valid fen in test");
         let mut moves = MoveList::new();
