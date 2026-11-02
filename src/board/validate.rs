@@ -203,7 +203,7 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::test_helpers::sq;
+    use crate::test_helpers::sq;
     use Color::*;
     use PositionError::*;
 
@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn validate() {
-        use crate::board::{KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6};
+        use crate::test_helpers::{KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6};
 
         let cases = [
             ("kiwipete", KIWIPETE, Ok(())),

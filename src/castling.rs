@@ -62,12 +62,9 @@ impl CastlingPath {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::sq as square;
     use CastleSide::*;
     use Color::*;
-
-    fn square(name: &str) -> Square {
-        name.parse().expect("test square names are valid")
-    }
 
     /// Bitboard of the named squares, built through `Square` rather than bit
     /// literals, so it can't share a bit-order mistake with the table.

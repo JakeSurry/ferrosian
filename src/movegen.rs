@@ -1,9 +1,10 @@
 //! Generate pseudo-legal moves in a position.
 //!
-//! Define a type `MoveList`, an ordered ArrayVec of `Move`s [`crate::types::Move`].
-//! impl Board::pseudo_legal_moves() -> `MoveList` of pseudo-legal moves [`crate::board`]
+//! Pseudo-legal move generation: [`MoveList`] and [`Board::pseudo_legal_moves`]
 
-use crate::types::{Move, MoveKind, Square};
+use crate::attacks::{king_attacks, knight_attacks};
+use crate::board::Board;
+use crate::types::{Bitboard, Move, MoveKind, PieceType, Square};
 use std::{fmt, ops::Deref};
 
 /// Maximum number of moves in a MoveList.
@@ -83,10 +84,6 @@ impl fmt::Debug for MoveList {
     }
 }
 
-use crate::attacks::{king_attacks, knight_attacks};
-use crate::board::Board;
-use crate::types::{Bitboard, PieceType};
-
 impl Board {
     pub fn pseudo_legal_moves(&self, moves: &mut MoveList) {
         moves.clear();
@@ -120,6 +117,8 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::KIWIPETE;
+    use PieceType::{King, Knight};
 
     fn mv(from: &str, to: &str) -> Move {
         Move::new(
@@ -259,8 +258,6 @@ mod tests {
     }
 
     type Cases<'a> = &'a [(&'a str, &'a str, PieceType, &'a [&'a str])];
-    use crate::board::KIWIPETE;
-    use PieceType::{King, Knight};
 
     #[test]
     fn pseudo_legal_moves() {

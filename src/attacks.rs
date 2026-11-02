@@ -129,10 +129,7 @@ pub fn queen_attacks(square: Square, blockers: Bitboard) -> Bitboard {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn sq(name: &str) -> Square {
-        name.parse().unwrap()
-    }
+    use crate::test_helpers::sq;
 
     fn all_squares() -> impl Iterator<Item = Square> {
         Bitboard::FULL.into_iter()

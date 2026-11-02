@@ -200,6 +200,7 @@ mod tests {
     use super::super::test_helpers::*;
     use super::*;
     use crate::board::STARTING_FEN;
+    use crate::test_helpers::sq;
     use crate::types::{CastleSide, CastlingRights};
 
     const ROUND_TRIP_FENS: [&str; 7] = [
