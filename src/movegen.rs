@@ -1,8 +1,10 @@
 //! Pseudo-legal move generation: [`MoveList`] and [`Board::pseudo_legal_moves`]
 
-use crate::attacks::{bishop_attacks, king_attacks, knight_attacks, queen_attacks, rook_attacks};
+use crate::attacks::{
+    bishop_attacks, king_attacks, knight_attacks, pawn_attacks, queen_attacks, rook_attacks,
+};
 use crate::board::Board;
-use crate::types::{Bitboard, Move, MoveKind, PieceType, Square};
+use crate::types::{Bitboard, Color, Move, MoveKind, PieceType, Square};
 use std::{fmt, ops::Deref};
 
 /// Maximum number of moves in a MoveList.
@@ -101,7 +103,7 @@ impl Board {
             |from| queen_attacks(from, blockers),
             moves,
         );
-        // TODO: pawn moves
+        self.push_pawn_moves(moves);
         // TODO: castling moves
     }
 
@@ -122,13 +124,61 @@ impl Board {
             }
         }
     }
+
+    fn push_pawn_moves(&self, moves: &mut MoveList) {
+        let us = self.side_to_move();
+        let enemies = self.occupancy(us.opposite());
+        let empty = !self.all_occupancy();
+
+        let (forward, double_push_rank, promotion_rank): (
+            fn(Bitboard) -> Bitboard,
+            Bitboard,
+            Bitboard,
+        ) = {
+            match us {
+                Color::White => (Bitboard::north, Bitboard::RANK_3, Bitboard::RANK_8),
+                Color::Black => (Bitboard::south, Bitboard::RANK_6, Bitboard::RANK_1),
+            }
+        };
+
+        for from in self.pieces(us, PieceType::Pawn) {
+            let single = forward(from.bitboard()) & empty;
+            let double = forward(single & double_push_rank) & empty;
+            let captures = pawn_attacks(us, from) & enemies;
+
+            for to in single | captures {
+                Self::push_pawn_move(from, to, promotion_rank, moves);
+            }
+
+            for to in double {
+                moves.push(Move::new(from, to, MoveKind::DoublePush));
+            }
+
+            let ep_square = self.en_passant_square();
+            if let Some(ep) = ep_square
+                && pawn_attacks(us, from).contains(ep)
+            {
+                moves.push(Move::new(from, ep, MoveKind::EnPassant));
+            }
+        }
+    }
+
+    fn push_pawn_move(from: Square, to: Square, promotion_rank: Bitboard, moves: &mut MoveList) {
+        if promotion_rank.contains(to) {
+            for piece_type in PieceType::PROMOTIONS {
+                moves.push(Move::new(from, to, MoveKind::Promotion(piece_type)));
+            }
+        } else {
+            moves.push(Move::new(from, to, MoveKind::Normal));
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::KIWIPETE;
-    use PieceType::{Bishop, King, Knight, Queen, Rook};
+    use crate::test_helpers::{KIWIPETE, PERFT4};
+    use PieceType::{Bishop, King, Knight, Pawn, Queen, Rook};
 
     fn mv(from: &str, to: &str) -> Move {
         Move::new(
@@ -270,7 +320,7 @@ mod tests {
     type Cases<'a> = &'a [(&'a str, &'a str, PieceType, &'a [&'a str])];
 
     #[test]
-    fn pseudo_legal_moves() {
+    fn pseudo_legal_moves_leapers() {
         let cases: Cases = &[
             // -- leapers -----
             (
@@ -326,7 +376,17 @@ mod tests {
                 ],
             ),
             ("Kiwipete king", KIWIPETE, King, &["e1d1", "e1f1"]),
-            // -- sliders -----
+        ];
+
+        for &(name, fen, piece_type, expected) in cases {
+            let actual = generated(fen, piece_type);
+            assert_eq!(expected, actual, "{name}");
+        }
+    }
+
+    #[test]
+    fn pseudo_legal_moves_sliders() {
+        let cases: Cases = &[
             (
                 "Start, white bishops boxed in",
                 "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -436,6 +496,259 @@ mod tests {
         for &(name, fen, piece_type, expected) in cases {
             let actual = generated(fen, piece_type);
             assert_eq!(expected, actual, "{name}");
+        }
+    }
+
+    #[test]
+    fn pseudo_legal_moves_pawns() {
+        let cases: Cases = &[
+            (
+                "Start, white pawns",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                Pawn,
+                &[
+                    "a2a3", "a2a4", "b2b3", "b2b4", "c2c3", "c2c4", "d2d3", "d2d4", "e2e3", "e2e4",
+                    "f2f3", "f2f4", "g2g3", "g2g4", "h2h3", "h2h4",
+                ],
+            ),
+            (
+                "Start, black pawns",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+                Pawn,
+                &[
+                    "a7a5", "a7a6", "b7b5", "b7b6", "c7c5", "c7c6", "d7d5", "d7d6", "e7e5", "e7e6",
+                    "f7f5", "f7f6", "g7g5", "g7g6", "h7h5", "h7h6",
+                ],
+            ),
+            (
+                "White pawn blocked directly, no jump",
+                "4k3/8/8/8/8/4n3/4P3/4K3 w - - 0 1",
+                Pawn,
+                &[],
+            ),
+            (
+                "White pawn, second square blocked: single push only",
+                "4k3/8/8/8/3p4/8/3P4/4K3 w - - 0 1",
+                Pawn,
+                &["d2d3"],
+            ),
+            (
+                "Black pawn blocked directly, no jump",
+                "4k3/3p4/3N4/8/8/8/8/4K3 b - - 0 1",
+                Pawn,
+                &[],
+            ),
+            (
+                "Black pawn, second square blocked: single push only",
+                "4k3/3p4/8/3N4/8/8/8/4K3 b - - 0 1",
+                Pawn,
+                &["d7d6"],
+            ),
+            (
+                "White pawn: push doesn't capture, own piece not captured",
+                "4k3/8/2pnN3/3P4/8/8/8/4K3 w - - 0 1",
+                Pawn,
+                &["d5c6"],
+            ),
+            (
+                "Black pawn: push doesn't capture, own piece not captured",
+                "4k3/8/8/8/3p4/2PNn3/8/4K3 b - - 0 1",
+                Pawn,
+                &["d4c3"],
+            ),
+            (
+                "Edge-file pawns capture inward only",
+                "4k3/8/8/8/8/1p4p1/P6P/4K3 w - - 0 1",
+                Pawn,
+                &["a2a3", "a2a4", "a2b3", "h2g3", "h2h3", "h2h4"],
+            ),
+            (
+                "White promotion by push and capture",
+                "2n1k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                Pawn,
+                &[
+                    "b7b8b", "b7b8n", "b7b8q", "b7b8r", "b7c8b", "b7c8n", "b7c8q", "b7c8r",
+                ],
+            ),
+            (
+                "Black promotion by push and both captures",
+                "4k3/8/8/8/8/8/6p1/4KN1N b - - 0 1",
+                Pawn,
+                &[
+                    "g2f1b", "g2f1n", "g2f1q", "g2f1r", "g2g1b", "g2g1n", "g2g1q", "g2g1r",
+                    "g2h1b", "g2h1n", "g2h1q", "g2h1r",
+                ],
+            ),
+            (
+                "Blocked promotion, nothing to capture",
+                "n3k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+                Pawn,
+                &[],
+            ),
+            (
+                "White en passant",
+                "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+                Pawn,
+                &["e5d6", "e5e6"],
+            ),
+            (
+                "Black en passant",
+                "4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1",
+                Pawn,
+                &["e4d3", "e4e3"],
+            ),
+            (
+                "En passant from both sides",
+                "4k3/8/8/2PpP3/8/8/8/4K3 w - d6 0 1",
+                Pawn,
+                &["c5c6", "c5d6", "e5d6", "e5e6"],
+            ),
+            (
+                "En passant square no pawn can reach",
+                "4k3/8/8/3p3P/8/8/8/4K3 w - d6 0 1",
+                Pawn,
+                &["h5h6"],
+            ),
+            (
+                "Kiwipete pawns (d5e6 and g2h3 capture)",
+                KIWIPETE,
+                Pawn,
+                &[
+                    "a2a3", "a2a4", "b2b3", "d5d6", "d5e6", "g2g3", "g2g4", "g2h3",
+                ],
+            ),
+            (
+                "Kiwipete, black pawns (b4c3, e6d5 and h3g2 capture)",
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq -",
+                Pawn,
+                &[
+                    "b4b3", "b4c3", "c7c5", "c7c6", "d7d6", "e6d5", "g6g5", "h3g2",
+                ],
+            ),
+            (
+                "Perft 4 pawns (a7 blocked from promoting)",
+                PERFT4,
+                Pawn,
+                &[
+                    "c4c5", "d2d3", "d2d4", "e4e5", "g2g3", "g2g4", "h2h3", "h2h4",
+                ],
+            ),
+            (
+                "Perft 4, black pawns (b2 promotes by push and capture)",
+                "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 b kq -",
+                Pawn,
+                &[
+                    "b2a1b", "b2a1n", "b2a1q", "b2a1r", "b2b1b", "b2b1n", "b2b1q", "b2b1r", "c7c5",
+                    "c7c6", "d7d5", "d7d6", "g7h6",
+                ],
+            ),
+        ];
+
+        for &(name, fen, piece_type, expected) in cases {
+            let actual = generated(fen, piece_type);
+            assert_eq!(expected, actual, "{name}");
+        }
+    }
+
+    fn kind_of(fen: &str, uci: &str) -> Option<MoveKind> {
+        let board: Board = fen.parse().expect("valid fen in test");
+        let mut moves = MoveList::new();
+
+        board.pseudo_legal_moves(&mut moves);
+        moves
+            .iter()
+            .find(|mv| mv.to_string() == uci)
+            .map(|mv| mv.kind())
+    }
+
+    #[test]
+    fn pseudo_legal_moves_pawn_kinds() {
+        type KindCases<'a> = &'a [(&'a str, &'a str, &'a str, Option<MoveKind>)];
+
+        let cases: KindCases = &[
+            (
+                "White single push",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                "e2e3",
+                Some(MoveKind::Normal),
+            ),
+            (
+                "White double push",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                "e2e4",
+                Some(MoveKind::DoublePush),
+            ),
+            (
+                "Black single push",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+                "e7e6",
+                Some(MoveKind::Normal),
+            ),
+            (
+                "Black double push",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+                "e7e5",
+                Some(MoveKind::DoublePush),
+            ),
+            (
+                "Ordinary capture is Normal",
+                "4k3/8/2pnN3/3P4/8/8/8/4K3 w - - 0 1",
+                "d5c6",
+                Some(MoveKind::Normal),
+            ),
+            (
+                "White en passant",
+                "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+                "e5d6",
+                Some(MoveKind::EnPassant),
+            ),
+            (
+                "Push beside an en passant chance stays Normal",
+                "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+                "e5e6",
+                Some(MoveKind::Normal),
+            ),
+            (
+                "Black en passant",
+                "4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1",
+                "e4d3",
+                Some(MoveKind::EnPassant),
+            ),
+            (
+                "White promotion by push",
+                "2n1k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                "b7b8q",
+                Some(MoveKind::Promotion(Queen)),
+            ),
+            (
+                "White promotion by capture",
+                "2n1k3/1P6/8/8/8/8/8/4K3 w - - 0 1",
+                "b7c8n",
+                Some(MoveKind::Promotion(Knight)),
+            ),
+            (
+                "Black promotion by push",
+                "4k3/8/8/8/8/8/6p1/4KN1N b - - 0 1",
+                "g2g1b",
+                Some(MoveKind::Promotion(Bishop)),
+            ),
+            (
+                "Black promotion by capture",
+                "4k3/8/8/8/8/8/6p1/4KN1N b - - 0 1",
+                "g2f1r",
+                Some(MoveKind::Promotion(Rook)),
+            ),
+            (
+                "Pawn can't move three squares",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                "e2e5",
+                None,
+            ),
+        ];
+
+        for &(name, fen, uci, expected) in cases {
+            let actual = kind_of(fen, uci);
+            assert_eq!(expected, actual, "{name}: {uci}");
         }
     }
 }
