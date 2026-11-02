@@ -1,5 +1,3 @@
-//! Generate pseudo-legal moves in a position.
-//!
 //! Pseudo-legal move generation: [`MoveList`] and [`Board::pseudo_legal_moves`]
 
 use crate::attacks::{king_attacks, knight_attacks};

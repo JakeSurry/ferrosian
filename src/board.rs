@@ -258,7 +258,7 @@ mod tests {
     use super::*;
     use crate::attacks;
     use crate::board::test_helpers::*;
-    use crate::test_helpers::sq;
+    use crate::test_helpers::{KIWIPETE, PERFT3, PERFT4, from_fen, sq};
 
     // --- empty board ---------------------------------------------------
 
@@ -518,15 +518,6 @@ Fullmove number: 1";
 
     // --- attacks and check ----------------------------------------------
 
-    fn from_fen(fen: &str) -> Board {
-        fen.parse().expect("valid FEN in test")
-    }
-
-    const KIWIPETE: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
-    const PERFT_POSITION_3: &str = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
-    const PERFT_POSITION_4: &str =
-        "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1";
-
     #[test]
     fn is_square_attacked_spot_checks() {
         // (fen, square, attacking color, expected, what it shows)
@@ -728,7 +719,7 @@ Fullmove number: 1";
 
     #[test]
     fn attackers_to_matches_brute_force() {
-        for fen in [STARTING_FEN, KIWIPETE, PERFT_POSITION_3, PERFT_POSITION_4] {
+        for fen in [STARTING_FEN, KIWIPETE, PERFT3, PERFT4] {
             let board = from_fen(fen);
             for index in 0..Square::COUNT {
                 let target = Square::from_index(index).expect("index in 0..64");
