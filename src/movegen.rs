@@ -1,6 +1,6 @@
 //! Pseudo-legal move generation: [`MoveList`] and [`Board::pseudo_legal_moves`]
 
-use crate::attacks::{king_attacks, knight_attacks};
+use crate::attacks::{bishop_attacks, king_attacks, knight_attacks, queen_attacks, rook_attacks};
 use crate::board::Board;
 use crate::types::{Bitboard, Move, MoveKind, PieceType, Square};
 use std::{fmt, ops::Deref};
@@ -88,7 +88,19 @@ impl Board {
 
         self.push_piece_moves(PieceType::King, king_attacks, moves);
         self.push_piece_moves(PieceType::Knight, knight_attacks, moves);
-        // TODO: slider moves
+
+        let blockers = self.all_occupancy();
+        self.push_piece_moves(
+            PieceType::Bishop,
+            |from| bishop_attacks(from, blockers),
+            moves,
+        );
+        self.push_piece_moves(PieceType::Rook, |from| rook_attacks(from, blockers), moves);
+        self.push_piece_moves(
+            PieceType::Queen,
+            |from| queen_attacks(from, blockers),
+            moves,
+        );
         // TODO: pawn moves
         // TODO: castling moves
     }
@@ -116,7 +128,7 @@ impl Board {
 mod tests {
     use super::*;
     use crate::test_helpers::KIWIPETE;
-    use PieceType::{King, Knight};
+    use PieceType::{Bishop, King, Knight, Queen, Rook};
 
     fn mv(from: &str, to: &str) -> Move {
         Move::new(
@@ -260,6 +272,7 @@ mod tests {
     #[test]
     fn pseudo_legal_moves() {
         let cases: Cases = &[
+            // -- leapers -----
             (
                 "Start, white knights",
                 "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -313,6 +326,111 @@ mod tests {
                 ],
             ),
             ("Kiwipete king", KIWIPETE, King, &["e1d1", "e1f1"]),
+            // -- sliders -----
+            (
+                "Start, white bishops boxed in",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                Bishop,
+                &[],
+            ),
+            (
+                "Start, white rooks boxed in",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                Rook,
+                &[],
+            ),
+            (
+                "Start, white queen boxed in",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                Queen,
+                &[],
+            ),
+            (
+                "Start, black queen boxed in",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+                Queen,
+                &[],
+            ),
+            (
+                "Lone rook on an empty board",
+                "8/8/8/8/8/8/8/R7 w - - 0 1",
+                Rook,
+                &[
+                    "a1a2", "a1a3", "a1a4", "a1a5", "a1a6", "a1a7", "a1a8", "a1b1", "a1c1", "a1d1",
+                    "a1e1", "a1f1", "a1g1", "a1h1",
+                ],
+            ),
+            (
+                "Bishop: own piece stops the ray, enemy is captured",
+                "8/8/1p3P2/8/3B4/8/8/8 w - - 0 1",
+                Bishop,
+                &[
+                    "d4a1", "d4b2", "d4b6", "d4c3", "d4c5", "d4e3", "d4e5", "d4f2", "d4g1",
+                ],
+            ),
+            (
+                "Rook: own piece stops the ray, enemy is captured",
+                "8/8/8/3p4/8/8/3R1P2/8 w - - 0 1",
+                Rook,
+                &[
+                    "d2a2", "d2b2", "d2c2", "d2d1", "d2d3", "d2d4", "d2d5", "d2e2",
+                ],
+            ),
+            (
+                "Black queen in a corner",
+                "7q/8/8/8/8/8/8/8 b - - 0 1",
+                Queen,
+                &[
+                    "h8a1", "h8a8", "h8b2", "h8b8", "h8c3", "h8c8", "h8d4", "h8d8", "h8e5", "h8e8",
+                    "h8f6", "h8f8", "h8g7", "h8g8", "h8h1", "h8h2", "h8h3", "h8h4", "h8h5", "h8h6",
+                    "h8h7",
+                ],
+            ),
+            (
+                "Kiwipete bishops (e2a6 captures)",
+                KIWIPETE,
+                Bishop,
+                &[
+                    "d2c1", "d2e3", "d2f4", "d2g5", "d2h6", "e2a6", "e2b5", "e2c4", "e2d1", "e2d3",
+                    "e2f1",
+                ],
+            ),
+            (
+                "Kiwipete rooks",
+                KIWIPETE,
+                Rook,
+                &["a1b1", "a1c1", "a1d1", "h1f1", "h1g1"],
+            ),
+            (
+                "Kiwipete queen (f3f6 and f3h3 capture)",
+                KIWIPETE,
+                Queen,
+                &[
+                    "f3d3", "f3e3", "f3f4", "f3f5", "f3f6", "f3g3", "f3g4", "f3h3", "f3h5",
+                ],
+            ),
+            (
+                "Kiwipete, black bishops (a6e2 captures)",
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq -",
+                Bishop,
+                &[
+                    "a6b5", "a6b7", "a6c4", "a6c8", "a6d3", "a6e2", "g7f8", "g7h6",
+                ],
+            ),
+            (
+                "Kiwipete, black rooks (h-file stops at own pawn on h3)",
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq -",
+                Rook,
+                &[
+                    "a8b8", "a8c8", "a8d8", "h8f8", "h8g8", "h8h4", "h8h5", "h8h6", "h8h7",
+                ],
+            ),
+            (
+                "Kiwipete, black queen",
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq -",
+                Queen,
+                &["e7c5", "e7d6", "e7d8", "e7f8"],
+            ),
         ];
 
         for &(name, fen, piece_type, expected) in cases {
