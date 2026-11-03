@@ -1,6 +1,7 @@
 //! Castling geometry, exposed as [CastleSide::path].
+//! Castling logic per move, exposed as [CastlingRights::update_for_move].
 
-use crate::types::{Bitboard, CastleSide, Color, Square};
+use crate::types::{Bitboard, CastleSide, CastlingRights, Color, Square};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CastlingPath {
@@ -55,6 +56,21 @@ impl CastlingPath {
             rook_to: self.rook_to.flip_rank(),
             must_be_empty: self.must_be_empty.flip_vertical(),
             must_be_safe: self.must_be_safe.flip_vertical(),
+        }
+    }
+}
+
+impl CastlingRights {
+    /// Removes every right whose king or rook home is `from` or `to`.
+    pub fn update_for_move(&mut self, from: Square, to: Square) {
+        let touched = from.bitboard() | to.bitboard();
+
+        for (clr_ind, paths) in PATHS.iter().enumerate() {
+            for (sde_ind, path) in paths.iter().enumerate() {
+                if touched.overlaps(path.king_from.bitboard() | path.rook_from.bitboard()) {
+                    self.remove_one(Color::ALL[clr_ind], CastleSide::ALL[sde_ind]);
+                }
+            }
         }
     }
 }
@@ -226,7 +242,7 @@ mod tests {
         }
     }
 
-    /// Queenside, the b-file square must be empty but needn't be safe; the
+    /// Queenside, the b-file square must be empty but may or may not be safe; the
     /// king's start must be safe but obviously isn't empty. Copying one mask
     /// into the other breaks this.
     #[test]
@@ -236,6 +252,76 @@ mod tests {
                 &format!("{color} {side} must_be_safe minus must_be_empty"),
                 path.king_from.bitboard(),
                 path.must_be_safe & !path.must_be_empty,
+            );
+        }
+    }
+    /// Squares whose touching loses (color, side): the king's and that rook's
+    /// homes, written as names so the test doesn't read them from PATHS.
+    fn home_names(color: Color, side: CastleSide) -> [&'static str; 2] {
+        match (color, side) {
+            (White, KingSide) => ["e1", "h1"],
+            (White, QueenSide) => ["e1", "a1"],
+            (Black, KingSide) => ["e8", "h8"],
+            (Black, QueenSide) => ["e8", "a8"],
+        }
+    }
+
+    #[test]
+    fn update_for_move_clears_a_right_exactly_when_a_home_is_touched() {
+        // d4 is nobody's home, so it is a neutral partner for the square under test.
+        let neutral = square("d4");
+
+        for (color, side, _) in all_paths() {
+            let homes = home_names(color, side);
+            for s in Bitboard::FULL {
+                let touched = homes.contains(&s.to_string().as_str());
+                for (label, from, to) in [("from", s, neutral), ("to", neutral, s)] {
+                    let mut rights = CastlingRights::ALL;
+                    rights.update_for_move(from, to);
+                    assert_eq!(
+                        !touched,
+                        rights.has(color, side),
+                        "{color} {side} right after a move with {label} = {s}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn update_for_move_rows() {
+        // (name, rights before, from, to, rights after)
+        let cases: &[(&str, &str, &str, &str, &str)] = &[
+            ("White king leaves e1", "KQkq", "e1", "e2", "kq"),
+            ("Black king castles e8 to g8", "KQkq", "e8", "g8", "KQ"),
+            ("White rook on h1 moves", "KQkq", "h1", "h5", "Qkq"),
+            ("Black rook on a8 moves", "KQkq", "a8", "a5", "KQk"),
+            (
+                "White rook takes the a8 rook: one right each side",
+                "KQkq",
+                "a1",
+                "a8",
+                "Kk",
+            ),
+            (
+                "A piece lands on h1: White loses K",
+                "KQkq",
+                "c6",
+                "h1",
+                "Qkq",
+            ),
+            ("Move away from every home", "KQkq", "d2", "d4", "KQkq"),
+            ("Lost rights stay lost", "Kq", "h1", "h2", "q"),
+            ("No rights to lose", "-", "e1", "e2", "-"),
+        ];
+
+        for &(why, before, from, to, expected) in cases {
+            let mut rights: CastlingRights = before.parse().expect("valid rights in test");
+            rights.update_for_move(square(from), square(to));
+            assert_eq!(
+                expected,
+                rights.to_string(),
+                "{why}: {from}{to} from {before}"
             );
         }
     }

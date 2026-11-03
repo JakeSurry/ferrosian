@@ -55,7 +55,7 @@ mod tests {
     use crate::test_helpers::{STARTING_FEN, from_fen, sq};
     use crate::types::{Move, MoveKind, MoveKind::*, PieceType::*};
 
-    /// (why, FEN before, from, to, kind, FEN after)
+    /// (name, FEN before, from, to, kind, FEN after)
     type Row<'a> = (&'a str, &'a str, &'a str, &'a str, MoveKind, &'a str);
 
     /// Makes each row's move on its FEN and compares the whole resulting FEN,
