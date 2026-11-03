@@ -73,13 +73,6 @@ impl CastlingRights {
                 }
             }
         }
-        for (clr_ind, paths) in PATHS.iter().enumerate() {
-            for (sde_ind, path) in paths.iter().enumerate() {
-                if touched.overlaps(path.king_from.bitboard() | path.rook_from.bitboard()) {
-                    self.remove_one(Color::ALL[clr_ind], CastleSide::ALL[sde_ind]);
-                }
-            }
-        }
     }
 }
 
