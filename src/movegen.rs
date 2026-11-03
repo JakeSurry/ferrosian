@@ -104,9 +104,12 @@ impl fmt::Debug for MoveList {
 
 impl fmt::Display for MoveList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.iter().for_each(|mv| {
-            let _ = write!(f, "{mv} ");
-        });
+        for (i, mv) in self.iter().enumerate() {
+            write!(f, "{mv}")?;
+            if i > 0 {
+                write!(f, " ")?;
+            }
+        }
 
         Ok(())
     }
