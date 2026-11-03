@@ -25,7 +25,7 @@ fn main() -> Result<()> {
 
     let leaf_node_count = perft(&board, depth);
     println!(
-        "...Complete!\n# Leaf Nodes: {}",
+        "...Complete!\n# Leaf Nodes: {}\n",
         format_output(leaf_node_count)
     );
     Ok(())

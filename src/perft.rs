@@ -16,6 +16,13 @@ pub fn perft(board: &Board, depth: u32) -> u64 {
 
     let mut moves = MoveList::new();
     board.legal_moves(&mut moves);
+
+    if depth == 1 {
+        return moves.len() as u64;
+    }
+
+    let mut moves = MoveList::new();
+    board.legal_moves(&mut moves);
     moves
         .iter()
         .map(|&mv| {
@@ -28,6 +35,24 @@ pub fn perft(board: &Board, depth: u32) -> u64 {
 
 /// The perft count below each legal root move, in move generation order.
 /// `divide(board, 0)` is empty: there is no root move to split by.
-pub fn divide(_board: &Board, _depth: u32) -> Vec<(Move, u64)> {
-    todo!()
+pub fn divide(board: &Board, depth: u32) -> Vec<(Move, u64)> {
+    let mut move_count: Vec<(Move, u64)> = Vec::new();
+
+    if depth == 0 {
+        return move_count;
+    }
+
+    let mut moves = MoveList::new();
+    board.legal_moves(&mut moves);
+
+    move_count = moves
+        .iter()
+        .map(|&mv| {
+            let mut next = *board;
+            next.make_move(mv);
+            (mv, perft(&next, depth - 1))
+        })
+        .collect();
+
+    move_count
 }
