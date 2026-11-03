@@ -105,10 +105,10 @@ impl fmt::Debug for MoveList {
 impl fmt::Display for MoveList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, mv) in self.iter().enumerate() {
-            write!(f, "{mv}")?;
             if i > 0 {
                 write!(f, " ")?;
             }
+            write!(f, "{mv}")?;
         }
 
         Ok(())
