@@ -1,30 +1,15 @@
-use crate::types::{Bitboard, Color, Square};
+mod leapers;
+mod magic;
+mod rays;
 
-pub mod leapers;
-pub mod magic;
-pub mod rays;
-
+pub use leapers::{king_attacks, knight_attacks, pawn_attacks};
 pub use magic::{bishop_attacks, queen_attacks, rook_attacks};
-
-#[inline]
-pub fn knight_attacks(square: Square) -> Bitboard {
-    leapers::knight_leaps(square)
-}
-
-#[inline]
-pub fn king_attacks(square: Square) -> Bitboard {
-    leapers::king_leaps(square)
-}
-
-#[inline]
-pub fn pawn_attacks(color: Color, square: Square) -> Bitboard {
-    leapers::pawn_leaps(color, square)
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_helpers::sq;
+    use crate::types::{Bitboard, Color, Square};
 
     fn all_squares() -> impl Iterator<Item = Square> {
         Bitboard::FULL.into_iter()

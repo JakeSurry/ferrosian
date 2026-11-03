@@ -60,14 +60,17 @@ static PAWN_ATTACKS: [[Bitboard; Square::COUNT]; Color::COUNT] = [
     attack_table!(black_pawn_attacks_from),
 ];
 
-pub(super) fn knight_leaps(square: Square) -> Bitboard {
+#[inline]
+pub fn knight_attacks(square: Square) -> Bitboard {
     KNIGHT_ATTACKS[square.index()]
 }
 
-pub(super) fn king_leaps(square: Square) -> Bitboard {
+#[inline]
+pub fn king_attacks(square: Square) -> Bitboard {
     KING_ATTACKS[square.index()]
 }
 
-pub(super) fn pawn_leaps(color: Color, square: Square) -> Bitboard {
+#[inline]
+pub fn pawn_attacks(color: Color, square: Square) -> Bitboard {
     PAWN_ATTACKS[color.index()][square.index()]
 }
