@@ -189,16 +189,16 @@ impl Board {
                     .any(|s| self.is_square_attacked(s, them))
             {
                 debug_assert_eq!(
-                    self.piece_at(path.king_from)
-                        .unwrap_or(Piece::new(them, PieceType::Pawn)),
-                    Piece::new(us, PieceType::King),
-                    "castling rights are invalid, king not on home square"
+                    Some(Piece::new(us, PieceType::King)),
+                    self.piece_at(path.king_from),
+                    "{us} holds the {side} right but its king is not on {}",
+                    path.king_from
                 );
                 debug_assert_eq!(
-                    self.piece_at(path.rook_from)
-                        .unwrap_or(Piece::new(them, PieceType::Pawn)),
-                    Piece::new(us, PieceType::Rook),
-                    "castling rights are invalid, rook not on home square"
+                    Some(Piece::new(us, PieceType::Rook)),
+                    self.piece_at(path.rook_from),
+                    "{us} holds the {side} right but its rook is not on {}",
+                    path.rook_from
                 );
 
                 moves.push(Move::new(
