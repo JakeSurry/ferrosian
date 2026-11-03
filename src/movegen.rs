@@ -4,7 +4,7 @@ use crate::attacks::{
     bishop_attacks, king_attacks, knight_attacks, pawn_attacks, queen_attacks, rook_attacks,
 };
 use crate::board::Board;
-use crate::types::{Bitboard, Color, Move, MoveKind, PieceType, Square};
+use crate::types::{Bitboard, CastleSide, Color, Move, MoveKind, PieceType, Square};
 use std::{fmt, ops::Deref};
 
 /// Maximum number of moves in a MoveList.
@@ -104,7 +104,7 @@ impl Board {
             moves,
         );
         self.push_pawn_moves(moves);
-        // TODO: castling moves
+        self.push_castling_moves(moves);
     }
 
     fn push_piece_moves(
@@ -170,6 +170,29 @@ impl Board {
             }
         } else {
             moves.push(Move::new(from, to, MoveKind::Normal));
+        }
+    }
+
+    fn push_castling_moves(&self, moves: &mut MoveList) {
+        let us = self.side_to_move();
+        let them = us.opposite();
+
+        for side in CastleSide::ALL {
+            let path = side.path(us);
+
+            if self.castling_rights().has(us, side)
+                && !path.must_be_empty.overlaps(self.all_occupancy())
+                && !path
+                    .must_be_safe
+                    .into_iter()
+                    .any(|s| self.is_square_attacked(s, them))
+            {
+                moves.push(Move::new(
+                    path.king_from,
+                    path.king_to,
+                    MoveKind::Castle(side),
+                ));
+            }
         }
     }
 }
@@ -375,7 +398,12 @@ mod tests {
                     "e5g6",
                 ],
             ),
-            ("Kiwipete king", KIWIPETE, King, &["e1d1", "e1f1"]),
+            (
+                "Kiwipete king (castles both ways)",
+                KIWIPETE,
+                King,
+                &["e1c1", "e1d1", "e1f1", "e1g1"],
+            ),
         ];
 
         for &(name, fen, piece_type, expected) in cases {
@@ -743,6 +771,193 @@ mod tests {
                 "Pawn can't move three squares",
                 "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
                 "e2e5",
+                None,
+            ),
+        ];
+
+        for &(name, fen, uci, expected) in cases {
+            let actual = kind_of(fen, uci);
+            assert_eq!(expected, actual, "{name}: {uci}");
+        }
+    }
+
+    #[test]
+    fn pseudo_legal_moves_castling() {
+        let cases: Cases = &[
+            (
+                "White castles both ways (rooks attacked down open files don't matter)",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                King,
+                &["e1c1", "e1d1", "e1d2", "e1e2", "e1f1", "e1f2", "e1g1"],
+            ),
+            (
+                "Black castles both ways (rooks attacked down open files don't matter)",
+                "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                King,
+                &["e8c8", "e8d7", "e8d8", "e8e7", "e8f7", "e8f8", "e8g8"],
+            ),
+            (
+                "White without rights",
+                "r3k2r/8/8/8/8/8/8/R3K2R w - - 0 1",
+                King,
+                &["e1d1", "e1d2", "e1e2", "e1f1", "e1f2"],
+            ),
+            (
+                "Black without rights",
+                "r3k2r/8/8/8/8/8/8/R3K2R b - - 0 1",
+                King,
+                &["e8d7", "e8d8", "e8e7", "e8f7", "e8f8"],
+            ),
+            (
+                "White holds kingside right only",
+                "r3k2r/8/8/8/8/8/8/R3K2R w Kq - 0 1",
+                King,
+                &["e1d1", "e1d2", "e1e2", "e1f1", "e1f2", "e1g1"],
+            ),
+            (
+                "Black holds queenside right only",
+                "r3k2r/8/8/8/8/8/8/R3K2R b Kq - 0 1",
+                King,
+                &["e8c8", "e8d7", "e8d8", "e8e7", "e8f7", "e8f8"],
+            ),
+            (
+                "White kingside blocked by own knight on g1",
+                "r3k2r/8/8/8/8/8/8/R3K1NR w KQkq - 0 1",
+                King,
+                &["e1c1", "e1d1", "e1d2", "e1e2", "e1f1", "e1f2"],
+            ),
+            (
+                "Black kingside blocked by own bishop on f8",
+                "r3kb1r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                King,
+                &["e8c8", "e8d7", "e8d8", "e8e7", "e8f7"],
+            ),
+            (
+                "White queenside blocked by enemy knight on b1",
+                "r3k2r/8/8/8/8/8/8/Rn2K2R w KQkq - 0 1",
+                King,
+                &["e1d1", "e1d2", "e1e2", "e1f1", "e1f2", "e1g1"],
+            ),
+            (
+                "Black queenside blocked by enemy knight on b8",
+                "rN2k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                King,
+                &["e8d7", "e8d8", "e8e7", "e8f7", "e8f8", "e8g8"],
+            ),
+            (
+                "White in check can't castle",
+                "r3k2r/8/8/8/4r3/8/8/R3K2R w KQkq - 0 1",
+                King,
+                &["e1d1", "e1d2", "e1e2", "e1f1", "e1f2"],
+            ),
+            (
+                "Black in check can't castle",
+                "r3k2r/8/8/4R3/8/8/8/R3K2R b KQkq - 0 1",
+                King,
+                &["e8d7", "e8d8", "e8e7", "e8f7", "e8f8"],
+            ),
+            (
+                "White transit square f1 attacked",
+                "r3k2r/8/8/8/5r2/8/8/R3K2R w KQkq - 0 1",
+                King,
+                &["e1c1", "e1d1", "e1d2", "e1e2", "e1f1", "e1f2"],
+            ),
+            (
+                "Black transit square d8 attacked",
+                "r3k2r/8/8/8/3R4/8/8/R3K2R b KQkq - 0 1",
+                King,
+                &["e8d7", "e8d8", "e8e7", "e8f7", "e8f8", "e8g8"],
+            ),
+            (
+                "White destination g1 attacked",
+                "r3k2r/8/8/8/6r1/8/8/R3K2R w KQkq - 0 1",
+                King,
+                &["e1c1", "e1d1", "e1d2", "e1e2", "e1f1", "e1f2"],
+            ),
+            (
+                "Black destination c8 attacked",
+                "r3k2r/8/8/8/2R5/8/8/R3K2R b KQkq - 0 1",
+                King,
+                &["e8d7", "e8d8", "e8e7", "e8f7", "e8f8", "e8g8"],
+            ),
+            (
+                "White b1 attacked but empty: queenside still allowed",
+                "r3k2r/8/8/8/1r6/8/8/R3K2R w KQkq - 0 1",
+                King,
+                &["e1c1", "e1d1", "e1d2", "e1e2", "e1f1", "e1f2", "e1g1"],
+            ),
+            (
+                "Black b8 attacked but empty: queenside still allowed",
+                "r3k2r/8/8/8/1R6/8/8/R3K2R b KQkq - 0 1",
+                King,
+                &["e8c8", "e8d7", "e8d8", "e8e7", "e8f7", "e8f8", "e8g8"],
+            ),
+            (
+                "White pawn on e2 attacks d1 and f1: neither side",
+                "r3k2r/8/8/8/8/8/4p3/R3K2R w KQkq - 0 1",
+                King,
+                &["e1d1", "e1d2", "e1e2", "e1f1", "e1f2"],
+            ),
+            (
+                "Black pawn on e7 attacks d8 and f8: neither side",
+                "r3k2r/4P3/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                King,
+                &["e8d7", "e8d8", "e8e7", "e8f7", "e8f8"],
+            ),
+            (
+                "Kiwipete, black king castles both ways",
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq -",
+                King,
+                &["e8c8", "e8d8", "e8f8", "e8g8"],
+            ),
+        ];
+
+        for &(name, fen, piece_type, expected) in cases {
+            let actual = generated(fen, piece_type);
+            assert_eq!(expected, actual, "{name}");
+        }
+    }
+
+    #[test]
+    fn pseudo_legal_moves_castle_kinds() {
+        use CastleSide::{KingSide, QueenSide};
+        type KindCases<'a> = &'a [(&'a str, &'a str, &'a str, Option<MoveKind>)];
+
+        let cases: KindCases = &[
+            (
+                "White kingside",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                "e1g1",
+                Some(MoveKind::Castle(KingSide)),
+            ),
+            (
+                "White queenside",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                "e1c1",
+                Some(MoveKind::Castle(QueenSide)),
+            ),
+            (
+                "Black kingside",
+                "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                "e8g8",
+                Some(MoveKind::Castle(KingSide)),
+            ),
+            (
+                "Black queenside",
+                "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                "e8c8",
+                Some(MoveKind::Castle(QueenSide)),
+            ),
+            (
+                "One-step king move beside a castle stays Normal",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                "e1f1",
+                Some(MoveKind::Normal),
+            ),
+            (
+                "No right, no castle",
+                "r3k2r/8/8/8/8/8/8/R3K2R w - - 0 1",
+                "e1g1",
                 None,
             ),
         ];
