@@ -32,7 +32,15 @@ impl Board {
                 )
             }
             MoveKind::Promotion(piece_type) => self.put_piece(to, Piece::new(us, piece_type)),
-            MoveKind::Castle(side) => { /* put the king, then move the rook */ }
+            MoveKind::Castle(side) => {
+                self.put_piece(to, piece);
+
+                let path = side.path(us);
+                self.remove_piece(path.rook_from);
+                self.put_piece(path.rook_to, Piece::new(us, PieceType::Rook));
+
+                self.castling_rights.remove_both(us);
+            }
         }
 
         if captured.is_some() || piece == Piece::new(us, PieceType::Pawn) {
@@ -45,6 +53,8 @@ impl Board {
             self.fullmove_count += 1;
         }
 
+        self.castling_rights.update_for_move(from, to);
+
         self.side_to_move = them;
     }
 }
@@ -53,7 +63,7 @@ impl Board {
 mod tests {
     use crate::board::Board;
     use crate::test_helpers::{STARTING_FEN, from_fen, sq};
-    use crate::types::{Move, MoveKind, MoveKind::*, PieceType::*};
+    use crate::types::{CastleSide::*, Move, MoveKind, MoveKind::*, PieceType::*};
 
     /// (name, FEN before, from, to, kind, FEN after)
     type Row<'a> = (&'a str, &'a str, &'a str, &'a str, MoveKind, &'a str);
@@ -314,6 +324,155 @@ mod tests {
                 "c1",
                 Promotion(Bishop),
                 "4k3/8/8/8/8/8/8/2b1K3 w - - 0 71",
+            ),
+        ];
+        check_rows(cases);
+    }
+    #[test]
+    fn make_move_castling_rights() {
+        let cases: &[Row] = &[
+            (
+                "White king move clears both White rights",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                "e1",
+                "e2",
+                Normal,
+                "r3k2r/8/8/8/8/8/4K3/R6R b kq - 1 1",
+            ),
+            (
+                "Black king move clears both Black rights",
+                "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                "e8",
+                "e7",
+                Normal,
+                "r6r/4k3/8/8/8/8/8/R3K2R w KQ - 1 2",
+            ),
+            (
+                "White h1 rook move clears K",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                "h1",
+                "h4",
+                Normal,
+                "r3k2r/8/8/8/7R/8/8/R3K3 b Qkq - 1 1",
+            ),
+            (
+                "White a1 rook move clears Q",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                "a1",
+                "a4",
+                Normal,
+                "r3k2r/8/8/8/R7/8/8/4K2R b Kkq - 1 1",
+            ),
+            (
+                "Black h8 rook move clears k",
+                "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                "h8",
+                "h5",
+                Normal,
+                "r3k3/8/8/7r/8/8/8/R3K2R w KQq - 1 2",
+            ),
+            (
+                "Black a8 rook move clears q",
+                "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                "a8",
+                "a5",
+                Normal,
+                "4k2r/8/8/r7/8/8/8/R3K2R w KQk - 1 2",
+            ),
+            (
+                "White rook takes rook a1-a8: Q by from, q by to",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                "a1",
+                "a8",
+                Normal,
+                "R3k2r/8/8/8/8/8/8/4K2R b Kk - 0 1",
+            ),
+            (
+                "Black rook takes rook h8-h1: k by from, K by to",
+                "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                "h8",
+                "h1",
+                Normal,
+                "r3k3/8/8/8/8/8/8/R3K2r w Qq - 0 2",
+            ),
+            (
+                "White bishop takes the h8 rook: clears k",
+                "r3k2r/8/8/8/8/8/1B6/R3K2R w KQkq - 0 1",
+                "b2",
+                "h8",
+                Normal,
+                "r3k2B/8/8/8/8/8/8/R3K2R b KQq - 0 1",
+            ),
+            (
+                "Black bishop takes the h1 rook: clears K",
+                "r3k2r/1b6/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                "b7",
+                "h1",
+                Normal,
+                "r3k2r/8/8/8/8/8/8/R3K2b w Qkq - 0 2",
+            ),
+            (
+                "White rook away from home keeps K",
+                "4k3/8/8/8/8/8/R7/4K2R w K - 0 1",
+                "a2",
+                "a3",
+                Normal,
+                "4k3/8/8/8/8/R7/8/4K2R b K - 1 1",
+            ),
+            (
+                "Black rook away from home keeps q",
+                "r3k3/r7/8/8/8/8/8/4K3 b q - 0 1",
+                "a7",
+                "a6",
+                Normal,
+                "r3k3/8/r7/8/8/8/8/4K3 w q - 1 2",
+            ),
+        ];
+        check_rows(cases);
+    }
+
+    #[test]
+    fn make_move_castling() {
+        let cases: &[Row] = &[
+            (
+                "White castles kingside",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                "e1",
+                "g1",
+                Castle(KingSide),
+                "r3k2r/8/8/8/8/8/8/R4RK1 b kq - 1 1",
+            ),
+            (
+                "White castles queenside",
+                "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                "e1",
+                "c1",
+                Castle(QueenSide),
+                "r3k2r/8/8/8/8/8/8/2KR3R b kq - 1 1",
+            ),
+            (
+                "Black castles kingside",
+                "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                "e8",
+                "g8",
+                Castle(KingSide),
+                "r4rk1/8/8/8/8/8/8/R3K2R w KQ - 1 2",
+            ),
+            (
+                "Black castles queenside",
+                "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                "e8",
+                "c8",
+                Castle(QueenSide),
+                "2kr3r/8/8/8/8/8/8/R3K2R w KQ - 1 2",
+            ),
+            (
+                "White castles kingside, Black's rights untouched",
+                "r3k2r/8/8/8/8/8/8/4K2R w Kkq - 3 12",
+                "e1",
+                "g1",
+                Castle(KingSide),
+                "r3k2r/8/8/8/8/8/8/5RK1 b kq - 4 12",
             ),
         ];
         check_rows(cases);

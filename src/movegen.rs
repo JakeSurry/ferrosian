@@ -42,6 +42,19 @@ impl MoveList {
         self.len = 0;
     }
 
+    pub fn retain(&mut self, mut keep: impl FnMut(Move) -> bool) {
+        let mut kept = 0;
+
+        for i in 0..self.len {
+            if keep(self.moves[i]) {
+                self.moves[kept] = self.moves[i];
+                kept += 1;
+            }
+        }
+
+        self.len = kept;
+    }
+
     pub fn as_slice(&self) -> &[Move] {
         &self.moves[..self.len]
     }
@@ -222,12 +235,24 @@ impl Board {
             }
         }
     }
+
+    /// Checks all moves to see if they will end with the player who moved in check.
+    pub fn legal_moves(&self, moves: &mut MoveList) {
+        self.pseudo_legal_moves(moves);
+        let us = self.side_to_move();
+
+        moves.retain(|mv| {
+            let mut next = *self;
+            next.make_move(mv);
+            !next.is_in_check(us)
+        });
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{KIWIPETE, PERFT4};
+    use crate::test_helpers::*;
     use PieceType::{Bishop, King, Knight, Pawn, Queen, Rook};
 
     fn mv(from: &str, to: &str) -> Move {
@@ -992,6 +1017,225 @@ mod tests {
         for &(name, fen, uci, expected) in cases {
             let actual = kind_of(fen, uci);
             assert_eq!(expected, actual, "{name}: {uci}");
+        }
+    }
+
+    #[test]
+    fn retain_keeps_matching_moves_in_order() {
+        type Keep = fn(Move) -> bool;
+        let moves = [
+            mv("a1", "a2"),
+            mv("b1", "b2"),
+            mv("c1", "c2"),
+            mv("d1", "d2"),
+        ];
+
+        let cases: &[(&str, Keep, Vec<Move>)] = &[
+            ("keep all", |_| true, moves.to_vec()),
+            ("keep none", |_| false, vec![]),
+            (
+                "keep files a and c",
+                |m| m.from().file() % 2 == 0,
+                vec![moves[0], moves[2]],
+            ),
+            ("keep only the last", |m| m.to().file() == 3, vec![moves[3]]),
+        ];
+
+        for (name, keep, expected) in cases {
+            let mut move_list = MoveList::new();
+            push_moves(&mut move_list, &moves);
+
+            move_list.retain(*keep);
+
+            assert_eq!(expected.as_slice(), move_list.as_slice(), "{name}");
+        }
+    }
+
+    #[test]
+    fn retain_on_an_empty_list() {
+        let mut move_list = MoveList::new();
+        move_list.retain(|_| true);
+        assert!(move_list.is_empty());
+    }
+
+    #[test]
+    fn retain_calls_keep_once_per_move_in_order() {
+        // A closure that records what it sees is why `retain` takes `FnMut`:
+        // it mutates `seen`, which an `Fn` closure couldn't.
+        let moves = [mv("a1", "a2"), mv("b1", "b2"), mv("c1", "c2")];
+        let mut move_list = MoveList::new();
+        push_moves(&mut move_list, &moves);
+
+        let mut seen = Vec::new();
+        move_list.retain(|m| {
+            seen.push(m);
+            true
+        });
+
+        assert_eq!(moves.as_slice(), seen.as_slice());
+    }
+
+    /// The side to move's legal moves, as sorted UCI strings.
+    fn legal(fen: &str) -> Vec<String> {
+        let board = from_fen(fen);
+        let mut moves = MoveList::new();
+
+        board.legal_moves(&mut moves);
+        let mut ucis: Vec<String> = moves.iter().map(|mv| mv.to_string()).collect();
+
+        ucis.sort();
+        ucis
+    }
+
+    #[test]
+    fn legal_move_counts_match_perft_depth_1() {
+        let cases = [
+            ("start", STARTING_FEN, 20),
+            ("Kiwipete", KIWIPETE, 48),
+            ("perft 3", PERFT3, 14),
+            ("perft 4", PERFT4, 6),
+            ("perft 5", PERFT5, 44),
+            ("perft 6", PERFT6, 46),
+        ];
+
+        for (name, fen, expected) in cases {
+            let mut moves = MoveList::new();
+            from_fen(fen).legal_moves(&mut moves);
+            assert_eq!(expected, moves.len(), "{name}: {:?}", legal(fen));
+        }
+    }
+
+    #[test]
+    fn legal_moves_clears_the_list_first() {
+        let mut moves = MoveList::new();
+        push_moves(&mut moves, &[mv("a1", "a2"), mv("b1", "b2")]);
+
+        from_fen(STARTING_FEN).legal_moves(&mut moves);
+
+        assert_eq!(20, moves.len());
+        assert!(!moves.contains(&mv("a1", "a2")), "stale moves are gone");
+    }
+
+    #[test]
+    fn legal_moves_rows() {
+        // The `PieceType` column of `Cases` is unused here, so a local row type.
+        let cases: &[(&str, &str, &[&str])] = &[
+            // pins
+            (
+                "White knight pinned on the e-file can't move",
+                "4k3/4r3/8/8/8/8/4N3/4K3 w - - 0 1",
+                &["e1d1", "e1d2", "e1f1", "e1f2"],
+            ),
+            (
+                "Black knight pinned on the e-file can't move",
+                "4k3/4n3/8/8/8/8/4R3/4K3 b - - 0 1",
+                &["e8d7", "e8d8", "e8f7", "e8f8"],
+            ),
+            (
+                "White rook pinned on the e-file moves along the pin",
+                "4k3/4r3/8/8/8/8/4R3/4K3 w - - 0 1",
+                &[
+                    "e1d1", "e1d2", "e1f1", "e1f2", "e2e3", "e2e4", "e2e5", "e2e6", "e2e7",
+                ],
+            ),
+            (
+                "Black bishop pinned on a diagonal moves along the pin",
+                "4k3/5b2/8/8/8/8/8/B3K3 b - - 0 1",
+                &[
+                    "e8d7", "e8d8", "e8e7", "e8f8", "f7a2", "f7b3", "f7c4", "f7d5", "f7e6", "f7g6",
+                    "f7g8", "f7h5",
+                ],
+            ),
+            // king safety
+            (
+                "White king can't step into attack or take a defended rook",
+                "4k3/8/8/8/8/2b5/3r4/4K3 w - - 0 1",
+                &["e1f1"],
+            ),
+            (
+                "Black king can't step into attack or take a defended rook",
+                "4k3/3R4/2B5/8/8/8/8/4K3 b - - 0 1",
+                &["e8f8"],
+            ),
+            // check
+            (
+                "White in single check: capture, block or king move",
+                "4k3/8/8/8/8/8/1B6/r3K3 w - - 0 1",
+                &["b2a1", "b2c1", "e1d2", "e1e2", "e1f2"],
+            ),
+            (
+                "Black in single check: capture, block or king move",
+                "R3k3/1b6/8/8/8/8/8/4K3 b - - 0 1",
+                &["b7a8", "b7c8", "e8d7", "e8e7", "e8f7"],
+            ),
+            (
+                "White in double check: king moves only",
+                "4k3/8/8/8/1b6/8/2N5/r3K3 w - - 0 1",
+                &["e1e2", "e1f2"],
+            ),
+            (
+                "Black in double check: king moves only",
+                "R3k3/2n5/8/1B6/8/8/8/4K3 b - - 0 1",
+                &["e8e7", "e8f7"],
+            ),
+            // en passant
+            (
+                "White en passant that exposes the king on the rank is illegal",
+                "8/8/8/KPp4r/8/8/8/7k w - c6 0 2",
+                &["a5a4", "a5a6", "a5b6", "b5b6"],
+            ),
+            (
+                "Black en passant that exposes the king on the rank is illegal",
+                "7K/8/8/8/R4pPk/8/8/8 b - g3 0 1",
+                &["f4f3", "h4g3", "h4g4", "h4g5", "h4h3"],
+            ),
+            (
+                "White en passant may capture the checking pawn",
+                "4k3/8/8/3pP3/4K3/8/8/8 w - d6 0 2",
+                &[
+                    "e4d3", "e4d4", "e4d5", "e4e3", "e4f3", "e4f4", "e4f5", "e5d6",
+                ],
+            ),
+            (
+                "Black en passant may capture the checking pawn",
+                "8/8/8/2k5/3Pp3/8/8/4K3 b - d3 0 1",
+                &[
+                    "c5b4", "c5b5", "c5b6", "c5c4", "c5c6", "c5d4", "c5d5", "c5d6", "e4d3",
+                ],
+            ),
+            // no legal moves
+            ("White checkmated", "6k1/8/8/8/8/8/5PPP/r5K1 w - - 0 1", &[]),
+            ("Black checkmated", "R5k1/5ppp/8/8/8/8/8/6K1 b - - 0 1", &[]),
+            ("White stalemated", "8/8/8/8/8/1q6/8/K6k w - - 0 1", &[]),
+            ("Black stalemated", "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1", &[]),
+        ];
+
+        for &(name, fen, expected) in cases {
+            assert_eq!(expected, legal(fen), "{name}");
+        }
+    }
+
+    #[test]
+    fn legal_moves_lead_to_valid_positions() {
+        // Invariant: every legal move from a valid position gives a valid
+        // position. `validate` catches a mover left in check
+        // (SideNotToMoveInCheck), a missed castling-rights update
+        // (InvalidCastlingRights) and a bad en passant square.
+        let fens = [STARTING_FEN, KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6];
+
+        for fen in fens {
+            let board = from_fen(fen);
+            let mut moves = MoveList::new();
+            board.legal_moves(&mut moves);
+
+            for &mv in &moves {
+                let mut next = board;
+                next.make_move(mv);
+                assert_eq!(Ok(()), next.is_consistent(), "{mv} from {fen}");
+                if let Err(errors) = next.validate() {
+                    panic!("{mv} from {fen} gives {}:\n{errors}", next.to_fen());
+                }
+            }
         }
     }
 }
