@@ -1,129 +1,24 @@
 use crate::types::{Bitboard, Color, Square};
 
-const fn knight_attacks_from(bb: Bitboard) -> Bitboard {
-    Bitboard::union_all(&[
-        bb.north().north_east(),
-        bb.north().north_west(),
-        bb.south().south_east(),
-        bb.south().south_west(),
-        bb.east().north_east(),
-        bb.east().south_east(),
-        bb.west().north_west(),
-        bb.west().south_west(),
-    ])
-}
+pub mod leapers;
+pub mod magic;
+pub mod rays;
 
-const fn king_attacks_from(bb: Bitboard) -> Bitboard {
-    Bitboard::union_all(&[
-        bb.north(),
-        bb.south(),
-        bb.east(),
-        bb.west(),
-        bb.north_east(),
-        bb.north_west(),
-        bb.south_east(),
-        bb.south_west(),
-    ])
-}
-
-const fn white_pawn_attacks_from(bb: Bitboard) -> Bitboard {
-    bb.north_east().union(bb.north_west())
-}
-
-const fn black_pawn_attacks_from(bb: Bitboard) -> Bitboard {
-    bb.south_east().union(bb.south_west())
-}
-
-/// Macro to generate attack tables. A macro is used in lieu of a function that accepts a function
-/// pointer and calls it (e.g. `fn foo(bar: fn()) {bar())}`) cannot be `const`.
-/// These tables should be generated at compilation, so a macro must be used.
-macro_rules! attack_table {
-    ($attacks_from:ident) => {{
-        let mut bitboards = [Bitboard::EMPTY; Square::COUNT];
-        let mut index = 0;
-
-        while index < Square::COUNT {
-            let square_bitboard = Square::from_index(index)
-                .expect("square index valid in range 0..64")
-                .bitboard();
-            bitboards[index] = $attacks_from(square_bitboard);
-            index += 1;
-        }
-        bitboards
-    }};
-}
-
-static KNIGHT_ATTACKS: [Bitboard; Square::COUNT] = attack_table!(knight_attacks_from);
-static KING_ATTACKS: [Bitboard; Square::COUNT] = attack_table!(king_attacks_from);
-static PAWN_ATTACKS: [[Bitboard; Square::COUNT]; Color::COUNT] = [
-    attack_table!(white_pawn_attacks_from),
-    attack_table!(black_pawn_attacks_from),
-];
+pub use magic::{bishop_attacks, queen_attacks, rook_attacks};
 
 #[inline]
 pub fn knight_attacks(square: Square) -> Bitboard {
-    KNIGHT_ATTACKS[square.index()]
+    leapers::knight_leaps(square)
 }
 
 #[inline]
 pub fn king_attacks(square: Square) -> Bitboard {
-    KING_ATTACKS[square.index()]
+    leapers::king_leaps(square)
 }
 
 #[inline]
 pub fn pawn_attacks(color: Color, square: Square) -> Bitboard {
-    PAWN_ATTACKS[color.index()][square.index()]
-}
-
-type Step = fn(Bitboard) -> Bitboard;
-
-const ROOK_STEPS: [Step; 4] = [
-    Bitboard::north,
-    Bitboard::south,
-    Bitboard::east,
-    Bitboard::west,
-];
-const BISHOP_STEPS: [Step; 4] = [
-    Bitboard::north_east,
-    Bitboard::north_west,
-    Bitboard::south_east,
-    Bitboard::south_west,
-];
-
-fn ray(start: Bitboard, blockers: Bitboard, step: Step) -> Bitboard {
-    let mut current = step(start);
-    let mut attacks = Bitboard::EMPTY;
-
-    while !current.is_empty() {
-        attacks |= current;
-        if current.overlaps(blockers) {
-            break;
-        }
-        current = step(current);
-    }
-    attacks
-}
-
-fn slider_attacks(square: Square, blockers: Bitboard, steps: &[Step]) -> Bitboard {
-    let start = square.bitboard();
-    steps.iter().fold(Bitboard::EMPTY, |acc, &step| {
-        acc | ray(start, blockers, step)
-    })
-}
-
-#[inline]
-pub fn rook_attacks(square: Square, blockers: Bitboard) -> Bitboard {
-    slider_attacks(square, blockers, &ROOK_STEPS)
-}
-
-#[inline]
-pub fn bishop_attacks(square: Square, blockers: Bitboard) -> Bitboard {
-    slider_attacks(square, blockers, &BISHOP_STEPS)
-}
-
-#[inline]
-pub fn queen_attacks(square: Square, blockers: Bitboard) -> Bitboard {
-    rook_attacks(square, blockers) | bishop_attacks(square, blockers)
+    leapers::pawn_leaps(color, square)
 }
 
 #[cfg(test)]

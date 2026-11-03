@@ -110,6 +110,22 @@ impl Bitboard {
         Some(square)
     }
 
+    /// Every subset of `self`, the empty set first and `self` last.
+    /// `EMPTY.subsets()` yields `EMPTY` once.
+    pub const fn subsets(self) -> Subsets {
+        Subsets {
+            set: self,
+            next: Some(Self::EMPTY),
+        }
+    }
+
+    /// `(self * magic) >> shift` with a wrapping multiply: the index of this blocker pattern
+    /// in a magic attack table. `self` must already be masked to the relevant squares.
+    #[inline]
+    pub const fn magic_index(self, magic: u64, shift: u32) -> usize {
+        (self.0.wrapping_mul(magic) >> shift) as usize
+    }
+
     const fn build_files() -> [Self; 8] {
         let mut files = [Self::EMPTY; 8];
         let mut i = 0;
@@ -156,6 +172,31 @@ impl FromIterator<Square> for Bitboard {
             .fold(Bitboard::EMPTY, |bb, sq| bb | sq.bitboard())
     }
 }
+
+/// Iterator over every subset of a bitboard, from [`Bitboard::subsets`].
+#[derive(Clone, Debug)]
+pub struct Subsets {
+    set: Bitboard,
+    next: Option<Bitboard>,
+}
+
+impl Iterator for Subsets {
+    type Item = Bitboard;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.next?;
+        // Carry-rippler: count up using only the set's bits; wraps to empty after the full set.
+        let following = Bitboard(current.0.wrapping_sub(self.set.0) & self.set.0);
+        self.next = if following.is_empty() {
+            None
+        } else {
+            Some(following)
+        };
+        Some(current)
+    }
+}
+
+impl FusedIterator for Subsets {}
 
 pub struct Squares(Bitboard);
 
