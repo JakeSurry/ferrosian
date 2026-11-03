@@ -31,7 +31,7 @@ impl Board {
                     ),
                 )
             }
-            MoveKind::Promotion(piece_type) => { /* put the new piece */ }
+            MoveKind::Promotion(piece_type) => self.put_piece(to, Piece::new(us, piece_type)),
             MoveKind::Castle(side) => { /* put the king, then move the rook */ }
         }
 
@@ -53,7 +53,7 @@ impl Board {
 mod tests {
     use crate::board::Board;
     use crate::test_helpers::{STARTING_FEN, from_fen, sq};
-    use crate::types::{Move, MoveKind, MoveKind::*};
+    use crate::types::{Move, MoveKind, MoveKind::*, PieceType::*};
 
     /// (why, FEN before, from, to, kind, FEN after)
     type Row<'a> = (&'a str, &'a str, &'a str, &'a str, MoveKind, &'a str);
@@ -259,6 +259,61 @@ mod tests {
                 "c3",
                 EnPassant,
                 "4k3/8/8/8/8/2p5/8/4K3 w - - 0 3",
+            ),
+        ];
+        check_rows(cases);
+    }
+
+    #[test]
+    fn make_move_promotion() {
+        let cases: &[Row] = &[
+            (
+                "White promotes to a queen, halfmove resets",
+                "4k3/P7/8/8/8/8/8/4K3 w - - 3 50",
+                "a7",
+                "a8",
+                Promotion(Queen),
+                "Q3k3/8/8/8/8/8/8/4K3 b - - 0 50",
+            ),
+            (
+                "White promotes to a knight",
+                "8/1P2k3/8/8/8/8/8/4K3 w - - 0 1",
+                "b7",
+                "b8",
+                Promotion(Knight),
+                "1N6/4k3/8/8/8/8/8/4K3 b - - 0 1",
+            ),
+            (
+                "Black promotes to a queen",
+                "4k3/8/8/8/8/8/7p/4K3 b - - 2 60",
+                "h2",
+                "h1",
+                Promotion(Queen),
+                "4k3/8/8/8/8/8/8/4K2q w - - 0 61",
+            ),
+            (
+                "Black promotes to a rook",
+                "4k3/8/8/8/8/8/6p1/4K3 b - - 0 1",
+                "g2",
+                "g1",
+                Promotion(Rook),
+                "4k3/8/8/8/8/8/8/4K1r1 w - - 0 2",
+            ),
+            (
+                "White capture-promotion to a queen",
+                "1r2k3/P7/8/8/8/8/8/4K3 w - - 6 70",
+                "a7",
+                "b8",
+                Promotion(Queen),
+                "1Q2k3/8/8/8/8/8/8/4K3 b - - 0 70",
+            ),
+            (
+                "Black capture-promotion to a bishop",
+                "4k3/8/8/8/8/8/1p6/2B1K3 b - - 6 70",
+                "b2",
+                "c1",
+                Promotion(Bishop),
+                "4k3/8/8/8/8/8/8/2b1K3 w - - 0 71",
             ),
         ];
         check_rows(cases);
