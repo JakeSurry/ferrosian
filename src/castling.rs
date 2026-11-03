@@ -1,5 +1,5 @@
-//! Castling geometry, exposed as [CastleSide::path].
-//! Castling logic per move, exposed as [CastlingRights::update_for_move].
+//! Castling: the squares each castling move involves ([`CastleSide::path`]) and
+//! which rights a move loses ([`CastlingRights::update_for_move`]).
 
 use crate::types::{Bitboard, CastleSide, CastlingRights, Color, Square};
 
@@ -65,6 +65,14 @@ impl CastlingRights {
     pub fn update_for_move(&mut self, from: Square, to: Square) {
         let touched = from.bitboard() | to.bitboard();
 
+        for color in Color::ALL {
+            for side in CastleSide::ALL {
+                let path = side.path(color);
+                if touched.overlaps(path.king_from.bitboard() | path.rook_from.bitboard()) {
+                    self.remove_one(color, side);
+                }
+            }
+        }
         for (clr_ind, paths) in PATHS.iter().enumerate() {
             for (sde_ind, path) in paths.iter().enumerate() {
                 if touched.overlaps(path.king_from.bitboard() | path.rook_from.bitboard()) {

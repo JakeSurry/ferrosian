@@ -1,12 +1,58 @@
+//! Making a move: [`Board::make_move`].
+//!
+//! A child module of `board` because it changes private state: placement through
+//! `put_piece`/`remove_piece`, plus side to move, castling rights, en passant
+//! square and both clocks.
+
 use crate::board::Board;
 use crate::types::{Color, Move, MoveKind, Piece, PieceType, Square};
 
 impl Board {
+    /// Plays `mv` on this board, updating placement, side to move, castling rights,
+    /// en passant square and both clocks.
+    ///
+    /// `mv` must be one of [`Board::pseudo_legal_moves`] for this position. Release
+    /// builds check nothing; debug builds assert the basics. The move may leave the
+    /// mover in check: legality is [`Board::legal_moves`]'s job.
+    ///
+    /// The board changes in place and there is no unmake. To keep the old position,
+    /// copy the board first (`Board` is `Copy`):
+    ///
+    /// ```
+    /// use chess::board::Board;
+    /// use chess::types::{Move, MoveKind};
+    ///
+    /// let board = Board::starting_position();
+    /// let mut next = board;
+    /// next.make_move(Move::new("e2".parse()?, "e4".parse()?, MoveKind::DoublePush));
+    /// assert_ne!(board, next);
+    /// # Ok::<(), chess::types::ParseError>(())
+    /// ```
     pub fn make_move(&mut self, mv: Move) {
         let us = self.side_to_move;
         let them = us.opposite();
         let to = mv.to();
         let from = mv.from();
+
+        debug_assert_eq!(
+            self.piece_at(from).map(|piece| piece.color),
+            Some(us),
+            "make_move {mv}: {from} must hold a {us} piece"
+        );
+        debug_assert!(
+            self.piece_at(to).is_none_or(|piece| piece.color == them),
+            "make_move {mv}: {to} holds a {us} piece"
+        );
+        debug_assert!(
+            self.piece_at(to)
+                .is_none_or(|piece| piece.piece_type != PieceType::King),
+            "make_move {mv}: captures a king, so the position before it was illegal"
+        );
+        debug_assert!(
+            mv.kind() != MoveKind::EnPassant || self.en_passant_square == Some(to),
+            "make_move {mv}: en passant to {to}, but the en passant square is {:?}",
+            self.en_passant_square
+        );
 
         let piece = self.remove_piece(from);
         let mut captured = self.piece_at(to).map(|_| self.remove_piece(to));
@@ -36,14 +82,12 @@ impl Board {
                 self.put_piece(to, piece);
 
                 let path = side.path(us);
-                self.remove_piece(path.rook_from);
-                self.put_piece(path.rook_to, Piece::new(us, PieceType::Rook));
-
-                self.castling_rights.remove_both(us);
+                let rook = self.remove_piece(path.rook_from);
+                self.put_piece(path.rook_to, rook);
             }
         }
 
-        if captured.is_some() || piece == Piece::new(us, PieceType::Pawn) {
+        if captured.is_some() || piece.piece_type == PieceType::Pawn {
             self.halfmove_clock = 0;
         } else {
             self.halfmove_clock += 1;
@@ -56,6 +100,8 @@ impl Board {
         self.castling_rights.update_for_move(from, to);
 
         self.side_to_move = them;
+
+        debug_assert_eq!(self.is_consistent(), Ok(()), "after make_move {mv}");
     }
 }
 

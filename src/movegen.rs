@@ -42,6 +42,11 @@ impl MoveList {
         self.len = 0;
     }
 
+    /// Keeps only the moves for which `keep` returns `true`, in their original order,
+    /// like [`Vec::retain`].
+    ///
+    /// `keep` is called once per move, in order. It takes the move by value
+    /// (`Move` is `Copy`) and is `FnMut`, so it may update state as it goes.
     pub fn retain(&mut self, mut keep: impl FnMut(Move) -> bool) {
         let mut kept = 0;
 
@@ -237,6 +242,17 @@ impl Board {
     }
 
     /// Checks all moves to see if they will end with the player who moved in check.
+    /// Fills `moves` with the side to move's legal moves, clearing it first.
+    ///
+    /// Generates the [pseudo-legal moves](Board::pseudo_legal_moves), makes each one
+    /// on a copy of the board, and keeps it only if the mover's king isn't attacked
+    /// afterwards. That one test covers pins, moving into check, failing to answer a
+    /// check and the en passant capture that uncovers an attack along the rank. The
+    /// order of the moves is unspecified.
+    ///
+    /// An empty list means checkmate if the side to move is
+    /// [in check](Board::is_in_check), and stalemate otherwise. Assumes a position
+    /// that passes [`Board::validate`].
     pub fn legal_moves(&self, moves: &mut MoveList) {
         self.pseudo_legal_moves(moves);
         let us = self.side_to_move();
@@ -252,7 +268,7 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::*;
+    use crate::test_helpers::{KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6, STARTING_FEN, from_fen};
     use PieceType::{Bishop, King, Knight, Pawn, Queen, Rook};
 
     fn mv(from: &str, to: &str) -> Move {
