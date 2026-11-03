@@ -4,7 +4,7 @@ use crate::attacks::{
     bishop_attacks, king_attacks, knight_attacks, pawn_attacks, queen_attacks, rook_attacks,
 };
 use crate::board::Board;
-use crate::types::{Bitboard, CastleSide, Color, Move, MoveKind, PieceType, Square};
+use crate::types::{Bitboard, CastleSide, Color, Move, MoveKind, Piece, PieceType, Square};
 use std::{fmt, ops::Deref};
 
 /// Maximum number of moves in a MoveList.
@@ -176,17 +176,31 @@ impl Board {
     fn push_castling_moves(&self, moves: &mut MoveList) {
         let us = self.side_to_move();
         let them = us.opposite();
+        let occupied = self.all_occupancy();
 
         for side in CastleSide::ALL {
             let path = side.path(us);
 
             if self.castling_rights().has(us, side)
-                && !path.must_be_empty.overlaps(self.all_occupancy())
+                && !path.must_be_empty.overlaps(occupied)
                 && !path
                     .must_be_safe
                     .into_iter()
                     .any(|s| self.is_square_attacked(s, them))
             {
+                debug_assert_eq!(
+                    self.piece_at(path.king_from)
+                        .unwrap_or(Piece::new(them, PieceType::Pawn)),
+                    Piece::new(us, PieceType::King),
+                    "castling rights are invalid, king not on home square"
+                );
+                debug_assert_eq!(
+                    self.piece_at(path.rook_from)
+                        .unwrap_or(Piece::new(them, PieceType::Pawn)),
+                    Piece::new(us, PieceType::Rook),
+                    "castling rights are invalid, rook not on home square"
+                );
+
                 moves.push(Move::new(
                     path.king_from,
                     path.king_to,
