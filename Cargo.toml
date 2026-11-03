@@ -3,6 +3,9 @@ name = "chess"
 version = "0.1.0"
 edition = "2024"
 
+[profile.test]
+opt-level = 3
+
 [dependencies]
 anyhow = "1.0.104"
 derive_more = { version = "2.1.1", features = [
