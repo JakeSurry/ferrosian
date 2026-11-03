@@ -1,5 +1,5 @@
 use crate::board::Board;
-use crate::types::{Color, Move, MoveKind, Piece, PieceType};
+use crate::types::{Color, Move, MoveKind, Piece, PieceType, Square};
 
 impl Board {
     pub fn make_move(&mut self, mv: Move) {
@@ -9,14 +9,28 @@ impl Board {
         let from = mv.from();
 
         let piece = self.remove_piece(from);
-        let captured = self.piece_at(to).map(|_| self.remove_piece(to));
+        let mut captured = self.piece_at(to).map(|_| self.remove_piece(to));
 
         self.en_passant_square = None;
 
         match mv.kind() {
             MoveKind::Normal => self.put_piece(to, piece),
-            MoveKind::DoublePush => { /* put, then set the en passant square */ }
-            MoveKind::EnPassant => { /* remove the pawn beside, then put */ }
+            MoveKind::DoublePush => {
+                self.put_piece(to, piece);
+
+                let ep_square = Square::from_index((from.index() + to.index()) / 2);
+                self.en_passant_square = ep_square;
+            }
+            MoveKind::EnPassant => {
+                self.put_piece(to, piece);
+
+                captured = Some(
+                    self.remove_piece(
+                        Square::from_file_rank(to.file(), from.rank())
+                            .expect("valid move and position will yield valid file and rank"),
+                    ),
+                )
+            }
             MoveKind::Promotion(piece_type) => { /* put the new piece */ }
             MoveKind::Castle(side) => { /* put the king, then move the rook */ }
         }
@@ -177,5 +191,76 @@ mod tests {
     fn make_move_from_an_empty_square_panics() {
         let mut board = Board::starting_position();
         board.make_move(Move::new(sq("e4"), sq("e5"), Normal));
+    }
+
+    #[test]
+    fn make_move_double_push_and_en_passant() {
+        let cases: &[Row] = &[
+            (
+                "White double push sets e3",
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                "e2",
+                "e4",
+                DoublePush,
+                "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            ),
+            (
+                "Black double push sets e6",
+                "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+                "e7",
+                "e5",
+                DoublePush,
+                "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
+            ),
+            (
+                "White double push on the a-file sets a3",
+                "4k3/7p/8/8/8/8/P7/4K3 w - - 4 9",
+                "a2",
+                "a4",
+                DoublePush,
+                "4k3/7p/8/8/P7/8/8/4K3 b - a3 0 9",
+            ),
+            (
+                "Black double push on the h-file sets h6",
+                "4k3/7p/8/8/P7/8/8/4K3 b - a3 0 9",
+                "h7",
+                "h5",
+                DoublePush,
+                "4k3/8/8/7p/P7/8/8/4K3 w - h6 0 10",
+            ),
+            (
+                "White en passant to the west removes the pawn on d5",
+                "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2",
+                "e5",
+                "d6",
+                EnPassant,
+                "4k3/8/3P4/8/8/8/8/4K3 b - - 0 2",
+            ),
+            (
+                "White en passant to the east removes the pawn on f5",
+                "4k3/8/8/4Pp2/8/8/8/4K3 w - f6 0 2",
+                "e5",
+                "f6",
+                EnPassant,
+                "4k3/8/5P2/8/8/8/8/4K3 b - - 0 2",
+            ),
+            (
+                "Black en passant to the east removes the pawn on e4",
+                "4k3/8/8/8/3pP3/8/8/4K3 b - e3 0 2",
+                "d4",
+                "e3",
+                EnPassant,
+                "4k3/8/8/8/8/4p3/8/4K3 w - - 0 3",
+            ),
+            (
+                "Black en passant to the west removes the pawn on c4",
+                "4k3/8/8/8/2Pp4/8/8/4K3 b - c3 0 2",
+                "d4",
+                "c3",
+                EnPassant,
+                "4k3/8/8/8/8/2p5/8/4K3 w - - 0 3",
+            ),
+        ];
+        check_rows(cases);
     }
 }
