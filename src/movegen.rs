@@ -102,6 +102,16 @@ impl fmt::Debug for MoveList {
     }
 }
 
+impl fmt::Display for MoveList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.iter().for_each(|mv| {
+            let _ = write!(f, "{mv} ");
+        });
+
+        Ok(())
+    }
+}
+
 impl Board {
     /// Fills `moves` with the side to move's pseudo-legal moves, clearing it first.
     ///
