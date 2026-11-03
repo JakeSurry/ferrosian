@@ -17,6 +17,13 @@ use std::fmt;
 
 pub const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+/// A chess position: piece placement, side to move, castling rights, en passant
+/// square and the two move clocks.
+///
+/// Build one with [`Board::starting_position`] or by parsing FEN (`fen.parse::<Board>()`),
+/// then check it with [`Board::validate`]. Methods are also defined in other modules:
+/// FEN output in [`crate::board::Fen`], validation in `board/validate.rs`, and move
+/// generation in [`crate::movegen`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Board {
     bitboards: [[Bitboard; PieceType::COUNT]; Color::COUNT],
