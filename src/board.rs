@@ -8,7 +8,7 @@
 
 mod fen;
 pub use fen::{Fen, FenError};
-
+mod makemove;
 mod validate;
 
 use crate::attacks;

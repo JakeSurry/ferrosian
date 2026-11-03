@@ -1,16 +1,5 @@
-/// Fills `moves` with the side to move's pseudo-legal moves, clearing it first.
-///
-/// Generates moves for every piece type: ordinary moves and captures, pawn double
-/// pushes, en passant, promotions (one move per piece in [`PieceType::PROMOTIONS`])
-/// and castling. The order of the moves is unspecified.
-///
-/// The moves are "pseudo-legal": they follow how each piece moves but may leave the
-/// mover's own king in check. Castling is the exception: the king's start, transit and
-/// destination squares are already checked for attacks, since a filter that only
-/// looks at the position after the move can't see the first two.
-///
-/// Assumes a position that passes [`Board::validate`]. In particular, a castling right
-/// is trusted to mean the king and rook are on their home squares (debug builds assert it).
+//! Pseudo-legal move generation: [`MoveList`] and [`Board::pseudo_legal_moves`]
+
 use crate::attacks::{
     bishop_attacks, king_attacks, knight_attacks, pawn_attacks, queen_attacks, rook_attacks,
 };
@@ -96,6 +85,19 @@ impl fmt::Debug for MoveList {
 }
 
 impl Board {
+    /// Fills `moves` with the side to move's pseudo-legal moves, clearing it first.
+    ///
+    /// Generates moves for every piece type: ordinary moves and captures, pawn double
+    /// pushes, en passant, promotions (one move per piece in [`PieceType::PROMOTIONS`])
+    /// and castling. The order of the moves is unspecified.
+    ///
+    /// The moves are "pseudo-legal": they follow how each piece moves but may leave the
+    /// mover's own king in check. Castling is the exception: the king's start, transit and
+    /// destination squares are already checked for attacks, since a filter that only
+    /// looks at the position after the move can't see the first two.
+    ///
+    /// Assumes a position that passes [`Board::validate`]. In particular, a castling right
+    /// is trusted to mean the king and rook are on their home squares (debug builds assert it).
     pub fn pseudo_legal_moves(&self, moves: &mut MoveList) {
         moves.clear();
 
