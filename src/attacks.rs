@@ -1,22 +1,24 @@
 //! Attack sets: the squares a piece on a given square attacks.
 //!
-//! Pure geometry: nothing here depends on `Board`. Questions about a position, such as
-//! `attackers_to` and `is_in_check`, are `Board` methods built on these functions.
-//!
 //! An attack set includes the first blocker of either color, so it means "attacks or
-//! defends". Removing own pieces to get a move set is the move generator's job.
+//! defends".
 //!
 //! - [`knight_attacks`], [`king_attacks`] and [`pawn_attacks`] read compile-time tables
 //!   (the private `leapers` module).
 //! - [`rook_attacks`], [`bishop_attacks`] and [`queen_attacks`] are magic bitboard lookups
 //!   (the private `magic` module). Their tables are built on first use from the ray walk in
 //!   the private `rays` module, which is also their test oracle.
+//! - [`between`] and [`line`] read compile-time tables generated in `lines`.
+//!   `between`: a bitboard representing the squares between two squares.
+//!   `line`: a bitboard representing the line which two squares fall on.
 
 mod leapers;
+mod lines;
 mod magic;
 mod rays;
 
 pub use leapers::{king_attacks, knight_attacks, pawn_attacks};
+pub use lines::{between, line};
 pub use magic::{bishop_attacks, queen_attacks, rook_attacks};
 
 #[cfg(test)]

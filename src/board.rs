@@ -193,7 +193,10 @@ impl Board {
     }
 
     pub fn attackers_to(&self, square: Square, by: Color) -> Bitboard {
-        let blockers = self.all_occupancy();
+        self.attackers_to_with(square, by, self.all_occupancy())
+    }
+
+    pub fn attackers_to_with(&self, square: Square, by: Color, blockers: Bitboard) -> Bitboard {
         let queen = self.pieces(by, PieceType::Queen);
         Bitboard::union_all(&[
             attacks::king_attacks(square) & self.pieces(by, PieceType::King),
