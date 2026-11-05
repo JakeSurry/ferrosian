@@ -1,12 +1,12 @@
-//! Perft split by root move, in the format of Stockfish's `go perft`.
+//! Perft split by root move.
 //!
 //! ```text
 //! cargo run --release --example divide -- <depth> [FEN]
 //! cargo run --release --example divide -- 3 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -"
 //! ```
 //!
-//! With no FEN, uses the starting position. Moves are sorted by their UCI text so
-//! Timing goes to stderr, so `> out.txt` captures only the diffable part.
+//! With no FEN, uses the starting position. Moves are sorted by their UCI text.
+//! Timing and board goe to stderr, `> out.txt` diffable to stockfish.
 
 use anyhow::{Context, Result};
 use chess::board::{Board, STARTING_FEN};
@@ -28,7 +28,7 @@ fn main() -> Result<()> {
         .with_context(|| format!("invalid FEN {fen:?}"))?;
     board.validate().context("invalid position")?;
 
-    // println!("{board}\n");
+    eprintln!("{board}\n");
 
     let start = Instant::now();
     let split = divide(&board, depth);
