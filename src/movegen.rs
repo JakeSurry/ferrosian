@@ -267,14 +267,122 @@ impl Board {
     /// [in check](Board::is_in_check), and stalemate otherwise. Assumes a position
     /// that passes [`Board::validate`].
     pub fn legal_moves(&self, moves: &mut MoveList) {
-        self.pseudo_legal_moves(moves);
         let us = self.side_to_move();
+        let them = us.opposite();
+
+        let king_sq = self.king_square(us).expect("king exists for valid board");
+        let checkers = self.attackers_to(king_sq, them);
+        let num_checkers = checkers.count();
+
+        if num_checkers > 1 {
+            self.pseudo_legal_king_moves(moves);
+            moves.retain(|mv| {
+                let mut next = *self;
+                next.make_move(mv);
+                !next.is_in_check(us)
+            });
+
+            return;
+        }
+
+        self.pseudo_legal_moves(moves);
+        if num_checkers == 1 {
+            let checker_sq = checkers
+                .into_iter()
+                .next()
+                .expect("checkers will contain 1 square");
+            let checker_type = self
+                .piece_at(checker_sq)
+                .expect("checker will be at checker square")
+                .piece_type;
+
+            self.pseudo_legal_moves(moves);
+            moves.retain(|mv| {
+                !matches!(mv.kind(), MoveKind::Castle(..))
+                    || mv.from() == king_sq
+                    || checkers.contains(mv.to())
+                    || Self::move_blocks(mv.to(), king_sq, checker_sq, checker_type)
+            });
+        }
+
+        let pinned = self.pinned_pieces(us, them, king_sq);
 
         moves.retain(|mv| {
             let mut next = *self;
             next.make_move(mv);
             !next.is_in_check(us)
         });
+    }
+
+    fn pseudo_legal_king_moves(&self, moves: &mut MoveList) {
+        self.push_piece_moves(PieceType::King, king_attacks, moves);
+    }
+
+    fn pinned_pieces(&self, us: Color, them: Color, king_sq: Square) -> Bitboard {
+        let mut pinned_pieces = Bitboard::EMPTY;
+        let occupied = self.all_occupancy();
+
+        let queens = self.pieces(them, PieceType::Queen);
+
+        for sq in self.pieces(them, PieceType::Bishop) | queens {
+            pinned_pieces |= Self::pinned_piece(king_sq, sq, bishop_attacks, occupied);
+        }
+
+        for sq in self.pieces(them, PieceType::Rook) | queens {
+            pinned_pieces |= Self::pinned_piece(king_sq, sq, rook_attacks, occupied);
+        }
+
+        pinned_pieces & self.occupancy(us)
+    }
+
+    fn pinned_piece(
+        king_sq: Square,
+        slider_sq: Square,
+        attack: fn(Square, Bitboard) -> Bitboard,
+        occupied: Bitboard,
+    ) -> Bitboard {
+        let intersect =
+            attack(slider_sq, Bitboard::EMPTY) & attack(king_sq, Bitboard::EMPTY) & occupied;
+
+        if intersect.count() != 1 {
+            return Bitboard::EMPTY;
+        }
+
+        intersect
+    }
+
+    fn move_blocks(
+        to: Square,
+        king_sq: Square,
+        checker_sq: Square,
+        checker_type: PieceType,
+    ) -> bool {
+        match checker_type {
+            PieceType::Bishop => {
+                bishop_attacks(checker_sq, Bitboard::EMPTY)
+                    & bishop_attacks(king_sq, Bitboard::EMPTY)
+            }
+            PieceType::Rook => {
+                rook_attacks(checker_sq, Bitboard::EMPTY) & rook_attacks(king_sq, Bitboard::EMPTY)
+            }
+            PieceType::Queen => {
+                queen_attacks(checker_sq, Bitboard::EMPTY) & queen_attacks(king_sq, Bitboard::EMPTY)
+            }
+            _ => Bitboard::EMPTY,
+        }
+        .contains(to)
+    }
+
+    fn pin_move_stays_pinned(
+        &self,
+        king_sq: Square,
+        occupied: Bitboard,
+        from: Square,
+        to: Square,
+        checker_sq: Square,
+        checker_type: PieceType,
+    ) -> bool {
+        todo!();
     }
 }
 

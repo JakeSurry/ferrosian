@@ -28,7 +28,7 @@ fn main() -> Result<()> {
         .with_context(|| format!("invalid FEN {fen:?}"))?;
     board.validate().context("invalid position")?;
 
-    println!("{board}\n");
+    // println!("{board}\n");
 
     let start = Instant::now();
     let split = divide(&board, depth);

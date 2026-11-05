@@ -80,8 +80,12 @@ fn find_magic(square: Square, steps: &[Step], rng: &mut Rng) -> (Magic, Vec<Bitb
         .map(|blockers| (blockers, slider_rays(square, blockers, steps)))
         .collect();
     let mut table: Vec<Option<Bitboard>> = vec![None; 1 << bits];
+    let mut epoch_table: Vec<u32> = vec![0; 1 << bits];
+    let mut epoch: u32 = 0;
 
     loop {
+        epoch += 1;
+
         let magic = rng.sparse_u64();
 
         // Cheap rejection: a useful magic moves several mask bits into the top byte.
@@ -89,16 +93,16 @@ fn find_magic(square: Square, steps: &[Step], rng: &mut Rng) -> (Magic, Vec<Bitb
             continue;
         }
 
-        table.fill(None);
         let fits = patterns.iter().all(|&(blockers, attacks)| {
-            let slot = &mut table[blockers.magic_index(magic, shift)];
-            match *slot {
-                None => {
-                    *slot = Some(attacks);
-                    true
-                }
-                // A constructive collision: same attacks, same slot, no harm.
-                Some(existing) => existing == attacks,
+            let index = blockers.magic_index(magic, shift);
+            let slot = &mut table[index];
+
+            if epoch_table[index] == epoch {
+                *slot == Some(attacks)
+            } else {
+                *slot = Some(attacks);
+                epoch_table[index] = epoch;
+                true
             }
         });
 
