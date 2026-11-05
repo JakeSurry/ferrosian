@@ -258,6 +258,15 @@ impl Board {
     /// Checks all moves for legality.
     /// Fills `moves` with the side to move's legal moves, clearing it first.
     ///
+    /// Collects all pseudo-legal moves in the position with [`Board::pseudo_legal_moves`],
+    /// then checks their legality individually with 4 stages:
+    ///     1. if the move was an en passant, check resulting position for not-to-move in check.
+    ///     2. if the moved piece was a king, see if king would be in check after move
+    ///        by removing the kind from occupancy and getting all attackers to the to-square.
+    ///     3. if the moved piece was pinned to the king, ensure it moves in-line with the king.
+    ///     4. if the king was in check, check if the moved piece falls between the king
+    ///        and attacker, or on the attacker itself.
+    ///
     /// An empty list means checkmate if the side to move is
     /// [in check](Board::is_in_check), and stalemate otherwise. Assumes a position
     /// that passes [`Board::validate`].
@@ -279,12 +288,12 @@ impl Board {
         let occupied = self.all_occupancy();
         let our_occupied = self.occupancy(us);
         let their_queens = self.pieces(them, PieceType::Queen);
-        let their_leapers = (bishop_attacks(king_sq, Bitboard::EMPTY)
+        let snipers = (bishop_attacks(king_sq, Bitboard::EMPTY)
             & (their_queens | self.pieces(them, PieceType::Bishop)))
             | (rook_attacks(king_sq, Bitboard::EMPTY)
                 & (their_queens | self.pieces(them, PieceType::Rook)));
 
-        let pinned = their_leapers.into_iter().fold(Bitboard::EMPTY, |acc, sq| {
+        let pinned = snipers.into_iter().fold(Bitboard::EMPTY, |acc, sq| {
             let blockers = between(king_sq, sq) & occupied;
 
             acc | match blockers.count() {
@@ -303,12 +312,10 @@ impl Board {
             } else if mv.from() == king_sq {
                 self.attackers_to_with(mv.to(), them, occupied & !king_sq.bitboard())
                     .is_empty()
-            } else if !check_mask.contains(mv.to()) {
-                false
             } else if pinned.contains(mv.from()) {
                 line(king_sq, mv.from()).contains(mv.to())
             } else {
-                true
+                check_mask.contains(mv.to())
             }
         });
     }
