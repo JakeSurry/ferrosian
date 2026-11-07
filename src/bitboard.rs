@@ -119,13 +119,6 @@ impl Bitboard {
         }
     }
 
-    /// `(self * magic) >> shift` with a wrapping multiply: the index of this blocker pattern
-    /// in a magic attack table. `self` must already be masked to the relevant squares.
-    #[inline]
-    pub const fn magic_index(self, magic: u64, shift: u32) -> usize {
-        (self.0.wrapping_mul(magic) >> shift) as usize
-    }
-
     const fn build_files() -> [Self; 8] {
         let mut files = [Self::EMPTY; 8];
         let mut i = 0;

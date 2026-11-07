@@ -45,6 +45,13 @@ impl CastleSide {
     pub fn path(self, color: Color) -> &'static CastlingPath {
         &PATHS[color.index()][self.index()]
     }
+
+    pub fn side_from_to(color: Color, king_to: Square) -> Option<Self> {
+        PATHS[color.index()]
+            .iter()
+            .position(|p| p.king_to == king_to)
+            .map(|i| CastleSide::ALL[i])
+    }
 }
 
 impl CastlingPath {

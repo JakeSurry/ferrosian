@@ -1,8 +1,33 @@
 //! Magic bitboard lookup for sliders. Tables are built from the ray walk in [`super::rays`].
+//!
+//! All public attack functions check the corresponding magic bitboard table.
+//! All tables are private, lazy statics that are initialized at run-time on their first call.
+//! This is done as building them with `const` would be annoying (and slow down compilation).
+//! impl's bitboard method [`Bitboard::magic_index`].
 
 use super::rays::{BISHOP_STEPS, ROOK_STEPS, Step, slider_rays};
 use crate::types::{Bitboard, Square};
 use std::sync::LazyLock;
+
+/// Rook attacks from `square`. `blockers` is the full occupancy; the first blocker of either
+/// color in each direction is included.
+#[inline]
+pub fn rook_attacks(square: Square, blockers: Bitboard) -> Bitboard {
+    ROOK_TABLE.attacks(square, blockers)
+}
+
+/// Bishop attacks from `square`. `blockers` is the full occupancy; the first blocker of either
+/// color in each direction is included.
+#[inline]
+pub fn bishop_attacks(square: Square, blockers: Bitboard) -> Bitboard {
+    BISHOP_TABLE.attacks(square, blockers)
+}
+
+/// Queen attacks: rook attacks plus bishop attacks.
+#[inline]
+pub fn queen_attacks(square: Square, blockers: Bitboard) -> Bitboard {
+    rook_attacks(square, blockers) | bishop_attacks(square, blockers)
+}
 
 /// The squares a slider passes through in one direction, stopping before the last on-board square.
 fn relevant_ray(start: Bitboard, step: Step) -> Bitboard {
@@ -17,12 +42,21 @@ fn relevant_ray(start: Bitboard, step: Step) -> Bitboard {
     mask
 }
 
-/// Every square whose occupancy can change `square`'s attacks for a slider with these steps.
+/// The squares a slider passes through in all `Step` directions, excludes the starting square.
 fn relevant_mask(square: Square, steps: &[Step]) -> Bitboard {
     let start = square.bitboard();
     steps.iter().fold(Bitboard::EMPTY, |acc, &step| {
         acc | relevant_ray(start, step)
     })
+}
+
+impl Bitboard {
+    /// `(self * magic) >> shift` with a wrapping multiply: the index of this blocker pattern
+    /// in a magic attack table. `self` must already be masked to the relevant squares.
+    #[inline]
+    pub const fn magic_index(self, magic: u64, shift: u32) -> usize {
+        (self.0.wrapping_mul(magic) >> shift) as usize
+    }
 }
 
 /// xorshift64 pseudo-random generator for magic candidates. Deterministic for a given seed.
@@ -50,8 +84,7 @@ impl Rng {
     }
 }
 
-/// One square's entry in a magic table: how to turn blockers into an index into the shared
-/// attack table.
+/// One square's entry in a magic table
 #[derive(Clone, Copy, Debug)]
 struct Magic {
     mask: Bitboard,
@@ -74,7 +107,7 @@ fn find_magic(square: Square, steps: &[Step], rng: &mut Rng) -> (Magic, Vec<Bitb
     let bits = u32::from(mask.count());
     let shift = 64 - bits;
 
-    // Every blocker pattern on the mask, with the attacks it produces.
+    // every blocker pattern on the mask, with the attacks it produces
     let patterns: Vec<(Bitboard, Bitboard)> = mask
         .subsets()
         .map(|blockers| (blockers, slider_rays(square, blockers, steps)))
@@ -88,7 +121,7 @@ fn find_magic(square: Square, steps: &[Step], rng: &mut Rng) -> (Magic, Vec<Bitb
 
         let magic = rng.sparse_u64();
 
-        // Cheap rejection: a useful magic moves several mask bits into the top byte.
+        // cheap rejection: a useful magic moves several mask bits into the top byte
         if mask.magic_index(magic, 56).count_ones() < 6 {
             continue;
         }
@@ -113,7 +146,7 @@ fn find_magic(square: Square, steps: &[Step], rng: &mut Rng) -> (Magic, Vec<Bitb
                 shift,
                 offset: 0,
             };
-            // Slots left empty by constructive collisions are never looked up.
+            // slots left empty by constructive collisions are never looked up
             let attacks = table.into_iter().map(Option::unwrap_or_default).collect();
             return (magic, attacks);
         }
@@ -131,7 +164,7 @@ impl MagicTable {
         let mut rng = Rng::new(seed);
         let mut attacks = Vec::new();
 
-        // `from_fn` calls the closure in index order, so offsets grow with the square index.
+        // `from_fn` calls the closure in index order, so offsets grow with the square index
         let magics = std::array::from_fn(|index| {
             let square = Square::from_index(index).expect("square index valid in range 0..64");
             let (magic, table) = find_magic(square, steps, &mut rng);
@@ -163,26 +196,6 @@ static ROOK_TABLE: LazyLock<MagicTable> =
 static BISHOP_TABLE: LazyLock<MagicTable> =
     LazyLock::new(|| MagicTable::build(&BISHOP_STEPS, BISHOP_SEED));
 
-/// Rook attacks from `square`. `blockers` is the full occupancy; the first blocker of either
-/// color in each direction is included.
-#[inline]
-pub fn rook_attacks(square: Square, blockers: Bitboard) -> Bitboard {
-    ROOK_TABLE.attacks(square, blockers)
-}
-
-/// Bishop attacks from `square`. `blockers` is the full occupancy; the first blocker of either
-/// color in each direction is included.
-#[inline]
-pub fn bishop_attacks(square: Square, blockers: Bitboard) -> Bitboard {
-    BISHOP_TABLE.attacks(square, blockers)
-}
-
-/// Queen attacks: rook attacks plus bishop attacks.
-#[inline]
-pub fn queen_attacks(square: Square, blockers: Bitboard) -> Bitboard {
-    rook_attacks(square, blockers) | bishop_attacks(square, blockers)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,7 +211,6 @@ mod tests {
         ("bishop", &BISHOP_STEPS, bishop_attacks),
     ];
 
-    /// Seed for test-only random blockers, separate from the table seeds.
     const TEST_SEED: u64 = 0x0123_4567_89AB_CDEF;
 
     fn all_squares() -> impl Iterator<Item = Square> {
