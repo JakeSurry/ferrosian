@@ -1,3 +1,11 @@
+//! UCI move text (`e2e4`, `e7e8q`): [`UciMove`] holds only the information needed to generate
+//! or parse a UCI move.
+//!
+//! [`UciMove::resolve`] matches it against the legal moves to get a full [`Move`], since only
+//! the board knows the kind (`e1g1` may be a castle or a king step).
+
+/// A move as UCI text: `from` and `to` squares plus an optional promotion piece (`e7e8q`).
+/// Legality is not ensured. The null move `0000` is not a `UciMove`.
 use crate::{
     board::Board,
     movegen::MoveList,
@@ -6,6 +14,7 @@ use crate::{
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
+/// UciMove,
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct UciMove {
     pub from: Square,
@@ -79,6 +88,8 @@ impl From<Move> for UciMove {
 }
 
 impl UciMove {
+    /// The legal move this text names, or `None` if there is none (including a promotion
+    /// with no letter).
     pub fn resolve(self, board: &Board) -> Option<Move> {
         let mut moves = MoveList::new();
         board.legal_moves(&mut moves);
@@ -86,6 +97,7 @@ impl UciMove {
     }
 }
 
+/// Why a string is not UCI move syntax.
 #[derive(Clone, PartialEq, Eq, Debug, Error)]
 pub enum UciMoveError {
     #[error("expected a string of length 4 or 5, got {0}")]
@@ -97,7 +109,7 @@ pub enum UciMoveError {
     #[error("invalid promotion char {0:?}")]
     InvalidPromotion(char),
 
-    #[error("non-ascii string `{0:?}`")]
+    #[error("non-ascii string {0:?}")]
     NotAscii(String),
 }
 
