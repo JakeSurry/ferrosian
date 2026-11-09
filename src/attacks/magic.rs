@@ -3,7 +3,7 @@
 //! All public attack functions check the corresponding magic bitboard table.
 //! All tables are private, lazy statics that are initialized at run-time on their first call.
 //! This is done as building them with `const` would be annoying (and slow down compilation).
-//! impl's bitboard method [`Bitboard::magic_index`].
+//! Also adds bitboard method [`Bitboard::magic_index`].
 
 use super::rays::{BISHOP_STEPS, ROOK_STEPS, Step, slider_rays};
 use crate::types::{Bitboard, Square};
@@ -84,7 +84,7 @@ impl Rng {
     }
 }
 
-/// One square's entry in a magic table
+/// One square's entry in a magic table.
 #[derive(Clone, Copy, Debug)]
 struct Magic {
     mask: Bitboard,
