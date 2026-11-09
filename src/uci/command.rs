@@ -16,6 +16,7 @@ pub enum GuiCommand {
     Stop,
     PonderHit,
     Quit,
+    Debug(bool),
     SetOption { name: String, value: Option<String> },
 }
 
@@ -34,6 +35,7 @@ impl FromStr for GuiCommand {
             "stop" => Self::Stop,
             "ponderhit" => Self::PonderHit,
             "quit" => Self::Quit,
+            "debug" => parse_debug(&mut tokens)?,
             "setoption" => parse_setoption(&mut tokens)?,
             other => return Err(CommandError::UnknownCommand(other.to_string())),
         };
@@ -43,23 +45,10 @@ impl FromStr for GuiCommand {
     }
 }
 
-impl fmt::Display for GuiCommand {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Uci => f.write_str("uci"),
-            Self::IsReady => f.write_str("isready"),
-            Self::UciNewGame => f.write_str("ucinewgame"),
-            Self::Stop => f.write_str("stop"),
-            Self::PonderHit => f.write_str("ponderhit"),
-            Self::Quit => f.write_str("quit"),
-            Self::SetOption { name, value } => {
-                write!(f, "setoption name {name}")?;
-                match value {
-                    Some(v) => write!(f, "value {v}"),
-                    None => Ok(()),
-                }
-            }
-        }
+fn expect_end(mut tokens: SplitWhitespace<'_>) -> Result<(), CommandError> {
+    match tokens.next() {
+        Some(token) => Err(CommandError::UnexpectedToken(token.to_string())),
+        None => Ok(()),
     }
 }
 
@@ -73,26 +62,38 @@ fn split_at_keyword<'a>(
     }
 }
 
+fn parse_debug(tokens: &mut SplitWhitespace) -> Result<GuiCommand, CommandError> {
+    match tokens.next() {
+        None => Err(CommandError::MissingValue {
+            keyword: "debug".to_string(),
+            args: "on/off".to_string(),
+        }),
+        Some("on") => Ok(GuiCommand::Debug(true)),
+        Some("off") => Ok(GuiCommand::Debug(false)),
+        Some(w) => Err(CommandError::UnexpectedToken(w.to_string())),
+    }
+}
+
 fn parse_setoption(tokens: &mut SplitWhitespace) -> Result<GuiCommand, CommandError> {
     let words: Vec<&str> = tokens.collect();
     let ["name", rest @ ..] = words.as_slice() else {
         return Err(match words.first() {
             Some(w) => CommandError::UnexpectedToken(w.to_string()),
             None => CommandError::MissingValue {
-                command: "setoption".to_string(),
-                keyword: "name".to_string(),
+                keyword: "setoption".to_string(),
+                args: "name".to_string(),
             },
         });
     };
 
     match split_at_keyword(rest, "value") {
         (&[], _) => Err(CommandError::MissingValue {
-            command: "setoption".to_string(),
-            keyword: "name".to_string(),
+            keyword: "setoption".to_string(),
+            args: "name".to_string(),
         }),
         (_, Some(&[])) => Err(CommandError::MissingValue {
-            command: "setoption".to_string(),
-            keyword: "value".to_string(),
+            keyword: "setoption".to_string(),
+            args: "value".to_string(),
         }),
         (name, value) => Ok(GuiCommand::SetOption {
             name: name.join(" "),
@@ -101,10 +102,24 @@ fn parse_setoption(tokens: &mut SplitWhitespace) -> Result<GuiCommand, CommandEr
     }
 }
 
-fn expect_end(mut tokens: SplitWhitespace<'_>) -> Result<(), CommandError> {
-    match tokens.next() {
-        Some(token) => Err(CommandError::UnexpectedToken(token.to_string())),
-        None => Ok(()),
+impl fmt::Display for GuiCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Uci => f.write_str("uci"),
+            Self::IsReady => f.write_str("isready"),
+            Self::UciNewGame => f.write_str("ucinewgame"),
+            Self::Stop => f.write_str("stop"),
+            Self::PonderHit => f.write_str("ponderhit"),
+            Self::Quit => f.write_str("quit"),
+            Self::Debug(b) => write!(f, "debug {}", if *b { "on" } else { "off" }),
+            Self::SetOption { name, value } => {
+                write!(f, "setoption name {name}")?;
+                match value {
+                    Some(v) => write!(f, "value {v}"),
+                    None => Ok(()),
+                }
+            }
+        }
     }
 }
 
@@ -160,7 +175,7 @@ pub enum CommandError {
     UnexpectedToken(String),
 
     #[error("")]
-    MissingValue { command: String, keyword: String },
+    MissingValue { keyword: String, args: String },
 }
 
 #[cfg(test)]
@@ -176,6 +191,8 @@ mod tests {
             ("stop", GuiCommand::Stop),
             ("ponderhit", GuiCommand::PonderHit),
             ("quit", GuiCommand::Quit),
+            ("debug on", GuiCommand::Debug(true)),
+            ("debug off", GuiCommand::Debug(false)),
         ];
         for (text, command) in cases {
             assert_eq!(command, text.parse().unwrap(), "{text} -> {command}");
@@ -214,6 +231,24 @@ mod tests {
                 "leftover token",
                 "isready now",
                 CommandError::UnexpectedToken("now".to_string()),
+            ),
+            (
+                "missing debug opts",
+                "debug",
+                CommandError::MissingValue {
+                    keyword: "debug".to_string(),
+                    args: "on/off".to_string(),
+                },
+            ),
+            (
+                "bad debug opt",
+                "debug maybe",
+                CommandError::UnexpectedToken("maybe".to_string()),
+            ),
+            (
+                "multiple debug opts",
+                "debug on off",
+                CommandError::UnexpectedToken("off".to_string()),
             ),
         ];
         for (name, case, expected) in cases {
