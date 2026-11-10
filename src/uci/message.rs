@@ -44,20 +44,20 @@ impl FromStr for EngineMessage {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut tokens = s.split_whitespace();
-        let Some(name) = tokens.next() else {
+        let Some(message) = tokens.next() else {
             return Err(MessageError::Empty);
         };
-        let command = match name {
+        let message = match message {
             "uciok" => Self::UciOk,
             "readyok" => Self::ReadyOk,
             "id" => parse_id(&mut tokens)?,
             "info" => parse_info(&mut tokens)?,
             "bestmove" => parse_best_move(&mut tokens)?,
-            other => Err(MessageError::UnexpectedToken(other.to_string()))?,
+            other => Err(MessageError::UnknownMessage(other.to_string()))?,
         };
 
         expect_end(&mut tokens)?;
-        Ok(command)
+        Ok(message)
     }
 }
 
@@ -96,49 +96,43 @@ fn parse_info(tokens: &mut SplitWhitespace<'_>) -> Result<EngineMessage, Message
     }
 }
 
+fn parse_move(mv: &str) -> Result<UciMove, MessageError> {
+    mv.parse().map_err(|source| MessageError::InvalidMove {
+        text: mv.to_string(),
+        source,
+    })
+}
+
+fn move_after(
+    keyword: &'static str,
+    tokens: &mut SplitWhitespace<'_>,
+) -> Result<UciMove, MessageError> {
+    let move_after = match tokens.next() {
+        Some(mv) => parse_move(mv)?,
+        None => return Err(MessageError::MissingValue { keyword }),
+    };
+    match tokens.next() {
+        Some(mv) => Err(MessageError::UnexpectedToken(mv.to_string())),
+        None => Ok(move_after),
+    }
+}
+
 fn parse_best_move(tokens: &mut SplitWhitespace<'_>) -> Result<EngineMessage, MessageError> {
-    let mut loops = 0;
-    let mut best: Option<UciMove> = None;
-    let mut ponder: Option<UciMove> = None;
-    for keyword in tokens.by_ref() {
-        match keyword {
-            "ponder" => match loops {
-                1 => {
-                    loops += 1;
-                    continue;
-                }
-                _ => return Err(MessageError::UnexpectedToken("ponder".to_string())),
-            },
-            NULL_MOVE | STOCKFISH_NULL_MOVE => match loops {
-                1 => return Err(MessageError::UnexpectedToken(keyword.to_string())),
-                _ => {
-                    loops += 1;
-                    break;
-                }
-            },
-            m => {
-                let mv = m
-                    .parse::<UciMove>()
-                    .map_err(|source| MessageError::InvalidMove {
-                        text: m.to_string(),
-                        source,
-                    })?;
-                match loops {
-                    0 => best = Some(mv),
-                    2 => ponder = Some(mv),
-                    _ => return Err(MessageError::UnexpectedToken(m.to_string())),
-                }
-            }
-        };
-        loops += 1;
-    }
-    match loops {
-        0 => Err(MessageError::MissingValue {
-            keyword: "bestmove",
-        }),
-        2 if ponder.is_none() => Err(MessageError::MissingValue { keyword: "ponder" }),
-        _ => Ok(EngineMessage::BestMove { best, ponder }),
-    }
+    let best = match tokens.next() {
+        None => {
+            return Err(MessageError::MissingValue {
+                keyword: "bestmove",
+            });
+        }
+        Some(NULL_MOVE | STOCKFISH_NULL_MOVE) => None,
+        Some(text) => Some(parse_move(text)?),
+    };
+    let ponder = match tokens.next() {
+        None => None,
+        Some("ponder") if best.is_some() => Some(move_after("ponder", tokens)?),
+        Some(other) => return Err(MessageError::UnexpectedToken(other.to_string())),
+    };
+    Ok(EngineMessage::BestMove { best, ponder })
 }
 
 impl fmt::Display for EngineMessage {
@@ -166,7 +160,7 @@ mod tests {
     use super::*;
     use crate::types::ParseError;
 
-    fn ucim(mv: &'static str) -> UciMove {
+    fn ucim(mv: &str) -> UciMove {
         mv.parse::<UciMove>().unwrap()
     }
 
@@ -230,6 +224,7 @@ mod tests {
     fn engine_message_lenient_parse() {
         let cases = [
             ("surrounding spaces", "  readyok  ", EngineMessage::ReadyOk),
+            ("windows line ending", "uciok\r", EngineMessage::UciOk),
             (
                 "collapsed spaces into value",
                 "id name  Ferrosian  0.1.0",
@@ -274,12 +269,12 @@ mod tests {
             (
                 "messages are case-sensitive",
                 "UCIOK",
-                MessageError::UnexpectedToken("UCIOK".to_string()),
+                MessageError::UnknownMessage("UCIOK".to_string()),
             ),
             (
                 "command is not an engine message",
                 "isready",
-                MessageError::UnexpectedToken("isready".to_string()),
+                MessageError::UnknownMessage("isready".to_string()),
             ),
             (
                 "leftover token",
@@ -290,6 +285,16 @@ mod tests {
                 "missing id opts",
                 "id",
                 MessageError::MissingValue { keyword: "id" },
+            ),
+            (
+                "id missing name keyword",
+                "id version 1",
+                MessageError::UnexpectedToken("version".to_string()),
+            ),
+            (
+                "id name missing opts",
+                "id name",
+                MessageError::MissingValue { keyword: "name" },
             ),
             (
                 "missing info opts",
@@ -343,6 +348,17 @@ mod tests {
                 "extra ponder move",
                 "bestmove e2e4 ponder e7e5 e2e3",
                 MessageError::UnexpectedToken("e2e3".to_string()),
+            ),
+            (
+                "ponder given null move",
+                "bestmove e2e4 ponder 0000",
+                MessageError::InvalidMove {
+                    text: "0000".to_string(),
+                    source: UciMoveError::InvalidSquare {
+                        text: "00".to_string(),
+                        source: ParseError::InvalidSquare,
+                    },
+                },
             ),
         ];
         for (why, text, expected) in cases {
