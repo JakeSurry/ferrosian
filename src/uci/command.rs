@@ -1030,11 +1030,16 @@ mod tests {
         ];
         for (why, base, moves, expected) in cases {
             let cmd = position_command(base, moves);
-            assert_eq!(
-                expected.to_string(),
-                cmd.to_board().unwrap().to_fen(),
-                "cmd ({why})"
-            );
+            assert_eq!(expected, cmd.to_board().unwrap().to_fen(), "{cmd} ({why})");
+        }
+    }
+
+    #[test]
+    fn valid_fen_with_no_moves_is_unchanged() {
+        let cases = [STARTING_FEN, KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6];
+        for case in cases {
+            let actual = position_command(fen(case), &[]).to_board().unwrap();
+            assert_eq!(from_fen(case), actual);
         }
     }
 
