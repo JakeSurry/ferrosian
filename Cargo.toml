@@ -9,6 +9,9 @@ opt-level = 3
 [profile.release]
 debug = true
 
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+
 [dependencies]
 anyhow = "1.0.104"
 derive_more = { version = "2.1.1", features = [
