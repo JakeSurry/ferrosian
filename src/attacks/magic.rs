@@ -180,7 +180,7 @@ static BISHOP_TABLE: LazyLock<MagicTable> =
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::sq;
+    use crate::test_helpers::{TEST_SEED, sq};
 
     /// A public lookup under test.
     type Lookup = fn(Square, Bitboard) -> Bitboard;
@@ -191,8 +191,6 @@ mod tests {
         ("rook", &ROOK_STEPS, rook_attacks),
         ("bishop", &BISHOP_STEPS, bishop_attacks),
     ];
-
-    const TEST_SEED: u64 = 0x0123_4567_89AB_CDEF;
 
     fn all_squares() -> impl Iterator<Item = Square> {
         Bitboard::FULL.into_iter()

@@ -51,8 +51,7 @@ impl Rng {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const TEST_SEED: u64 = 0x0123_4567_89AB_CDEF;
+    use crate::test_helpers::TEST_SEED;
 
     #[test]
     fn is_deterministic_and_never_zero() {
