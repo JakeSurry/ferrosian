@@ -1039,7 +1039,7 @@ mod tests {
         let cases = [STARTING_FEN, KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6];
         for case in cases {
             let actual = position_command(fen(case), &[]).to_board().unwrap();
-            assert_eq!(from_fen(case), actual);
+            assert_eq!(from_fen(case), actual, "{case}");
         }
     }
 
