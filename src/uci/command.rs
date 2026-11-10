@@ -8,6 +8,34 @@ use std::{
 };
 use thiserror::Error;
 
+#[derive(Clone, PartialEq, Eq, Debug, Error)]
+pub enum CommandError {
+    #[error("empty command")]
+    Empty,
+
+    #[error("unknown command {0:?}")]
+    UnknownCommand(String),
+
+    #[error("unexpected token {0:?}")]
+    UnexpectedToken(String),
+
+    #[error("missing value after {keyword}")]
+    MissingValue { keyword: &'static str },
+
+    #[error("invalid move {text:?}")]
+    InvalidMove { text: String, source: UciMoveError },
+
+    #[error("invalid FEN")]
+    InvalidFen { source: FenError },
+
+    #[error("invalid number {text:?} after {keyword}")]
+    InvalidNumber {
+        keyword: &'static str,
+        text: String,
+        source: ParseIntError,
+    },
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum GuiCommand {
     Uci,
@@ -297,38 +325,11 @@ fn write_opt(
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Error)]
-pub enum CommandError {
-    #[error("empty command")]
-    Empty,
-
-    #[error("unknown command {0:?}")]
-    UnknownCommand(String),
-
-    #[error("unexpected token {0:?}")]
-    UnexpectedToken(String),
-
-    #[error("missing value after {keyword}")]
-    MissingValue { keyword: &'static str },
-
-    #[error("invalid move {text:?}")]
-    InvalidMove { text: String, source: UciMoveError },
-
-    #[error("invalid FEN")]
-    InvalidFen { source: FenError },
-
-    #[error("invalid number {text:?} after {keyword}")]
-    InvalidNumber {
-        keyword: &'static str,
-        text: String,
-        source: ParseIntError,
-    },
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::from_fen;
+    use crate::movegen::MoveList;
+    use crate::test_helpers::{KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6, STARTING_FEN, from_fen};
     use crate::types::ParseError;
     use PositionBase::*;
     use std::num::IntErrorKind;
@@ -816,6 +817,30 @@ mod tests {
                 panic!("{text:?}: expected InvalidNumber, got {error:?}");
             };
             assert_eq!(&expected, source.kind(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn position_round_trips_cpw() {
+        let mut moves = MoveList::new();
+        let mut child_moves = MoveList::new();
+        for fen in [STARTING_FEN, KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6] {
+            let board = from_fen(fen);
+            board.legal_moves(&mut moves);
+            let children = moves.iter().map(|&mv| {
+                let mut child = board;
+                child.make_move(mv);
+                child
+            });
+            for position in std::iter::once(board).chain(children) {
+                position.legal_moves(&mut child_moves);
+                let command = GuiCommand::Position(PositionCommand {
+                    base: Fen(Box::new(position)),
+                    moves: child_moves.iter().map(|&mv| UciMove::from(mv)).collect(),
+                });
+                let text = command.to_string();
+                assert_eq!(Ok(command), text.parse::<GuiCommand>(), "parsing {text:?}");
+            }
         }
     }
 }
