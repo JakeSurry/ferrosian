@@ -15,7 +15,7 @@ use crate::types::Move;
 
 /// Returns a random legal move in `board`.
 ///
-/// An return value of `None` means checkmate if the side to move is
+/// A return value of `None` means checkmate if the side to move is
 /// [in check](Board::is_in_check), and stalemate otherwise. Assumes a position
 /// that passes [`Board::validate`].
 pub fn random_move(board: &Board, rng: &mut Rng) -> Option<Move> {
@@ -83,10 +83,12 @@ mod tests {
     fn reaches_every_starting_move() {
         let mut rng = Rng::new(TEST_SEED);
         let board = from_fen(STARTING_FEN);
+        let mut legal = MoveList::new();
+        board.legal_moves(&mut legal);
         let seen: Vec<Move> = (0..200)
             .map(|_| random_move(&board, &mut rng).expect("starting position has moves"))
             .collect();
-        let missing: Vec<&Move> = seen.iter().filter(|mv| !seen.contains(mv)).collect();
+        let missing: Vec<&Move> = seen.iter().filter(|mv| !legal.contains(mv)).collect();
         assert_eq!(
             Vec::<&Move>::new(),
             missing,
