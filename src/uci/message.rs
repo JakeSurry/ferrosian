@@ -145,13 +145,13 @@ fn parse_move(mv: &str) -> Result<UciMove, MessageError> {
     })
 }
 
-/// The move after `keyword`, which must be the last token on the line.
+/// The move after `keyword`.
 fn move_after(
     keyword: &'static str,
     tokens: &mut SplitWhitespace<'_>,
 ) -> Result<UciMove, MessageError> {
     match tokens.next() {
-        Some(mv) => Ok(parse_move(mv)?),
+        Some(mv) => parse_move(mv),
         None => Err(MessageError::MissingValue { keyword }),
     }
 }
