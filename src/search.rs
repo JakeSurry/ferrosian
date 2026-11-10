@@ -88,7 +88,7 @@ mod tests {
         let seen: Vec<Move> = (0..200)
             .map(|_| random_move(&board, &mut rng).expect("starting position has moves"))
             .collect();
-        let missing: Vec<&Move> = seen.iter().filter(|mv| !legal.contains(mv)).collect();
+        let missing: Vec<&Move> = legal.iter().filter(|mv| !seen.contains(mv)).collect();
         assert_eq!(
             Vec::<&Move>::new(),
             missing,
