@@ -4,8 +4,6 @@
 //! [`UciMove::resolve`] matches it against the legal moves to get a full [`Move`], since only
 //! the board knows the kind (`e1g1` may be a castle or a king step).
 
-/// A move as UCI text: `from` and `to` squares plus an optional promotion piece (`e7e8q`).
-/// Legality is not ensured. The null move `0000` is not a `UciMove`.
 use crate::{
     board::Board,
     movegen::MoveList,
@@ -14,14 +12,29 @@ use crate::{
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
-/// UciMove,
+/// A move as UCI text: `from` and `to` squares plus an optional promotion piece (`e7e8q`).
+///
+/// Syntax only: every value is well formed, but it may not be legal, or even possible, on a
+/// given board. The null move `0000` is not a `UciMove`; messages that allow it use
+/// `Option<UciMove>`.
+///
+/// ```
+/// use chess::uci::UciMove;
+///
+/// let mv: UciMove = "e7e8q".parse().unwrap();
+/// assert_eq!("e7e8q", mv.to_string());
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct UciMove {
+    /// The square the piece leaves (the king's square for castling).
     pub from: Square,
+    /// The square the piece lands on (the king's destination for castling).
     pub to: Square,
+    /// The piece a pawn promotes to: knight, bishop, rook or queen.
     pub promotion: Option<PieceType>,
 }
 
+/// Parses lowercase UCI move text: two squares and an optional promotion letter (`nbrq`).
 impl FromStr for UciMove {
     type Err = UciMoveError;
 
@@ -73,6 +86,7 @@ impl fmt::Display for UciMove {
     }
 }
 
+/// Forgets the move kind. A promotion keeps its piece; every other kind has none.
 impl From<Move> for UciMove {
     fn from(mv: Move) -> Self {
         let promotion = match mv.kind() {
@@ -90,6 +104,9 @@ impl From<Move> for UciMove {
 impl UciMove {
     /// The legal move this text names, or `None` if there is none (including a promotion
     /// with no letter).
+    ///
+    /// Compares through [`From<Move>`](UciMove::from), so the two can never disagree. Assumes
+    /// a validated position, like [`Board::legal_moves`].
     pub fn resolve(self, board: &Board) -> Option<Move> {
         let mut moves = MoveList::new();
         board.legal_moves(&mut moves);
@@ -100,15 +117,19 @@ impl UciMove {
 /// Why a string is not UCI move syntax.
 #[derive(Clone, PartialEq, Eq, Debug, Error)]
 pub enum UciMoveError {
+    /// Not 4 or 5 characters long.
     #[error("expected a string of length 4 or 5, got {0}")]
     WrongLength(String),
 
+    /// The first or second pair of characters is not a square.
     #[error("expected valid square string, got {text:?}")]
     InvalidSquare { text: String, source: ParseError },
 
+    /// The fifth character is not `n`, `b`, `r` or `q`.
     #[error("invalid promotion char {0:?}")]
     InvalidPromotion(char),
 
+    /// Contains a non-ASCII character (checked first, so slicing by byte is safe).
     #[error("non-ascii string {0:?}")]
     NotAscii(String),
 }

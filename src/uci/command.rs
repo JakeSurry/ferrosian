@@ -1,3 +1,7 @@
+//! GUI-to-engine UCI commands: what the engine parses and what a UCI client prints.
+//!
+//! The other direction is [`EngineMessage`](super::EngineMessage).
+
 use super::{UciMove, UciMoveError};
 use crate::board::{Board, FenError};
 use std::{
@@ -8,26 +12,34 @@ use std::{
 };
 use thiserror::Error;
 
+/// Why a line is not a valid [`GuiCommand`].
 #[derive(Clone, PartialEq, Eq, Debug, Error)]
 pub enum CommandError {
+    /// The line has no tokens.
     #[error("empty command")]
     Empty,
 
+    /// The first token names no command.
     #[error("unknown command {0:?}")]
     UnknownCommand(String),
 
+    /// A token that does not fit where it appears, including anything after a complete command.
     #[error("unexpected token {0:?}")]
     UnexpectedToken(String),
 
+    /// The line ends where `keyword` needs a value.
     #[error("missing value after {keyword}")]
     MissingValue { keyword: &'static str },
 
+    /// A move after `moves` or `searchmoves` is not UCI move syntax.
     #[error("invalid move {text:?}")]
     InvalidMove { text: String, source: UciMoveError },
 
+    /// The text after `position fen` is not FEN syntax.
     #[error("invalid FEN")]
     InvalidFen { source: FenError },
 
+    /// The value after a `go` keyword is not a number of the right type.
     #[error("invalid number {text:?} after {keyword}")]
     InvalidNumber {
         keyword: &'static str,
@@ -36,17 +48,49 @@ pub enum CommandError {
     },
 }
 
+/// A command from the GUI to the engine.
+///
+/// `FromStr` parses one line, strictly: unknown commands and stray tokens are errors, and the
+/// engine loop decides to ignore them. `Display` prints the canonical line without its
+/// newline.
+///
+/// ```
+/// use chess::uci::GuiCommand;
+///
+/// let cmd: GuiCommand = "go  depth 5 wtime 1000".parse().unwrap();
+/// assert_eq!("go wtime 1000 depth 5", cmd.to_string());
+/// ```
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum GuiCommand {
+    /// `uci`: switch to UCI mode; the engine answers with `id` lines and `uciok`.
     Uci,
+
+    /// `isready`: the engine answers `readyok` once it can take commands.
     IsReady,
+
+    /// `ucinewgame`: the next position is from a new game.
     UciNewGame,
+
+    /// `stop`: end the current search and send `bestmove`.
     Stop,
+
+    /// `ponderhit`: the opponent played the expected move; keep searching as a normal search.
     PonderHit,
+
+    /// `quit`: exit as soon as possible.
     Quit,
+
+    /// `debug on` or `debug off`.
     Debug(bool),
+
+    /// `position (startpos | fen <fen>) [moves <move>...]`.
     Position(PositionCommand),
+
+    /// `go [<param>...]`: start searching the current position.
     Go(GoParams),
+
+    /// `setoption name <name> [value <value>]`. Both may contain spaces; they stay strings
+    /// until engine options exist.
     SetOption { name: String, value: Option<String> },
 }
 
@@ -77,6 +121,7 @@ impl FromStr for GuiCommand {
     }
 }
 
+/// Fails on the first token left over after a complete command.
 fn expect_end(mut tokens: SplitWhitespace<'_>) -> Result<(), CommandError> {
     match tokens.next() {
         Some(token) => Err(CommandError::UnexpectedToken(token.to_string())),
@@ -136,6 +181,7 @@ fn millis(
     Ok(Duration::from_millis(u64::try_from(ms).unwrap_or(0)))
 }
 
+/// Parses the rest of a `debug` line: `on` or `off`.
 fn parse_debug(tokens: &mut SplitWhitespace<'_>) -> Result<GuiCommand, CommandError> {
     match tokens.next() {
         None => Err(CommandError::MissingValue { keyword: "debug" }),
@@ -145,6 +191,7 @@ fn parse_debug(tokens: &mut SplitWhitespace<'_>) -> Result<GuiCommand, CommandEr
     }
 }
 
+/// Parses the rest of a `position` line: the base, then any moves after `moves`.
 fn parse_position(tokens: &mut SplitWhitespace<'_>) -> Result<GuiCommand, CommandError> {
     let words: Vec<&str> = tokens.collect();
     let (base_words, move_words) = split_at_keyword(&words, "moves");
@@ -171,6 +218,8 @@ fn parse_position(tokens: &mut SplitWhitespace<'_>) -> Result<GuiCommand, Comman
     Ok(GuiCommand::Position(PositionCommand { base, moves }))
 }
 
+/// Parses the rest of a `go` line. Keywords may come in any order; `searchmoves` takes the
+/// rest of the line.
 fn parse_go(tokens: &mut SplitWhitespace<'_>) -> Result<GuiCommand, CommandError> {
     let mut params = GoParams::default();
     while let Some(keyword) = tokens.next() {
@@ -193,6 +242,7 @@ fn parse_go(tokens: &mut SplitWhitespace<'_>) -> Result<GuiCommand, CommandError
     Ok(GuiCommand::Go(params))
 }
 
+/// Parses the rest of a `setoption` line: `name <words> [value <words>]`.
 fn parse_setoption(tokens: &mut SplitWhitespace<'_>) -> Result<GuiCommand, CommandError> {
     let words: Vec<&str> = tokens.collect();
     let ["name", rest @ ..] = words.as_slice() else {
@@ -237,9 +287,14 @@ impl fmt::Display for GuiCommand {
     }
 }
 
+/// The payload of a `position` command: a starting position and the moves played from it.
+///
+/// The moves are syntax only; they are resolved against the board when the position is set up.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PositionCommand {
+    /// The position before any moves.
     pub base: PositionBase,
+    /// The moves played from `base`, in order.
     pub moves: Vec<UciMove>,
 }
 
@@ -250,6 +305,7 @@ impl fmt::Display for PositionCommand {
     }
 }
 
+/// Writes ` <prefix> <move>...`, or nothing when `moves` is empty.
 fn write_moves(f: &mut fmt::Formatter<'_>, prefix: &'static str, moves: &[UciMove]) -> fmt::Result {
     if moves.is_empty() {
         return Ok(());
@@ -261,9 +317,13 @@ fn write_moves(f: &mut fmt::Formatter<'_>, prefix: &'static str, moves: &[UciMov
     Ok(())
 }
 
+/// Where a `position` command starts.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PositionBase {
+    /// `startpos`: the standard starting position.
     StartPos,
+    /// `fen <fen>`: a position parsed from FEN (syntax only, not yet validated). Boxed so the
+    /// enum stays small.
     Fen(Box<Board>),
 }
 
@@ -276,19 +336,36 @@ impl fmt::Display for PositionBase {
     }
 }
 
+/// The search limits of a `go` command. `Default` is a bare `go`.
+///
+/// Times are [`Duration`]s; milliseconds exist only in the text. A negative time (a GUI's
+/// clock under lag) parses as zero. `Display` prints the fields in declaration order and skips
+/// the ones that are unset.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct GoParams {
+    /// `wtime`: White's remaining clock time.
     pub wtime: Option<Duration>,
+    /// `btime`: Black's remaining clock time.
     pub btime: Option<Duration>,
+    /// `winc`: White's increment per move.
     pub winc: Option<Duration>,
+    /// `binc`: Black's increment per move.
     pub binc: Option<Duration>,
+    /// `movestogo`: moves until the next time control.
     pub moves_to_go: Option<u32>,
+    /// `depth`: search this many plies only.
     pub depth: Option<u32>,
+    /// `nodes`: search this many nodes only.
     pub nodes: Option<u64>,
+    /// `mate`: look for a mate in this many moves.
     pub mate: Option<u32>,
+    /// `movetime`: search exactly this long.
     pub move_time: Option<Duration>,
+    /// `infinite`: search until `stop`.
     pub infinite: bool,
+    /// `ponder`: search in pondering mode until `ponderhit` or `stop`.
     pub ponder: bool,
+    /// `searchmoves`: consider only these root moves. Empty means all.
     pub search_moves: Vec<UciMove>,
 }
 
@@ -314,6 +391,7 @@ impl fmt::Display for GoParams {
     }
 }
 
+/// Writes ` <keyword> <value>`, or nothing when `value` is `None`.
 fn write_opt(
     f: &mut fmt::Formatter<'_>,
     keyword: &str,

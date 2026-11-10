@@ -1,3 +1,9 @@
+//! Engine-to-GUI UCI messages: what the engine prints and what a UCI client parses.
+//!
+//! The other direction is [`GuiCommand`](super::GuiCommand). Only the messages a random mover
+//! needs exist so far; `info` search fields and `option` declarations come with the search and
+//! the first engine option.
+
 use super::uci_move::{UciMove, UciMoveError};
 use std::{
     fmt,
@@ -5,36 +11,67 @@ use std::{
 };
 use thiserror::Error;
 
+/// Why a line is not a valid [`EngineMessage`].
 #[derive(Clone, PartialEq, Eq, Debug, Error)]
 pub enum MessageError {
+    /// The line has no tokens.
     #[error("empty message")]
     Empty,
 
+    /// The first token names no engine message.
     #[error("unknown message {0:?}")]
     UnknownMessage(String),
 
+    /// A token that does not fit where it appears, including anything after a complete message.
     #[error("unexpected token {0:?}")]
     UnexpectedToken(String),
 
+    /// The line ends where `keyword` needs a value.
     #[error("missing value after {keyword}")]
     MissingValue { keyword: &'static str },
 
+    /// A move after `bestmove` or `ponder` is not UCI move syntax.
     #[error("invalid move {text:?}")]
     InvalidMove { text: String, source: UciMoveError },
 }
 
+/// UCI's "no move", printed as `bestmove 0000` when the side to move is mated or stalemated.
 const NULL_MOVE: &str = "0000";
+/// Stockfish's spelling of the null move. Accepted when parsing, never printed.
 const STOCKFISH_NULL_MOVE: &str = "(none)";
 
+/// A message from the engine to the GUI.
+///
+/// `FromStr` parses one line; `Display` prints the canonical line without its newline.
+/// String values must not contain a newline, or the message prints as two lines.
+///
+/// ```
+/// use chess::uci::EngineMessage;
+///
+/// let msg: EngineMessage = "bestmove  e2e4 ponder e7e5".parse().unwrap();
+/// assert_eq!("bestmove e2e4 ponder e7e5", msg.to_string());
+/// ```
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum EngineMessage {
+    /// `uciok`: the reply to `uci`, after the `id` lines.
     UciOk,
+    /// `readyok`: the reply to `isready`.
     ReadyOk,
+    /// `id name <name>`: the engine's name, which may contain spaces.
     IdName(String),
+    /// `id author <author>`: the engine's author, which may contain spaces.
     IdAuthor(String),
+    /// `info string <text>`: free text for the GUI to show. Takes the rest of the line.
     InfoString(String),
+    /// `bestmove <move> [ponder <move>]`: the end of a search.
+    ///
+    /// `best: None` is the null move (`0000`), sent when there is no legal move. A
+    /// `ponder` move is meaningful only after a real best move: parsing rejects
+    /// `bestmove 0000 ponder ...`, and printing ignores `ponder` when `best` is `None`.
     BestMove {
+        /// The move the engine plays, or `None` for the null move.
         best: Option<UciMove>,
+        /// The reply the engine expects, for the GUI to ponder on.
         ponder: Option<UciMove>,
     },
 }
@@ -44,16 +81,16 @@ impl FromStr for EngineMessage {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut tokens = s.split_whitespace();
-        let Some(message) = tokens.next() else {
+        let Some(name) = tokens.next() else {
             return Err(MessageError::Empty);
         };
-        let message = match message {
+        let message = match name {
             "uciok" => Self::UciOk,
             "readyok" => Self::ReadyOk,
             "id" => parse_id(&mut tokens)?,
             "info" => parse_info(&mut tokens)?,
             "bestmove" => parse_best_move(&mut tokens)?,
-            other => Err(MessageError::UnknownMessage(other.to_string()))?,
+            other => return Err(MessageError::UnknownMessage(other.to_string())),
         };
 
         expect_end(&mut tokens)?;
@@ -61,6 +98,7 @@ impl FromStr for EngineMessage {
     }
 }
 
+/// Fails on the first token left over after a complete message.
 fn expect_end(tokens: &mut SplitWhitespace<'_>) -> Result<(), MessageError> {
     match tokens.next() {
         Some(token) => Err(MessageError::UnexpectedToken(token.to_string())),
@@ -68,6 +106,7 @@ fn expect_end(tokens: &mut SplitWhitespace<'_>) -> Result<(), MessageError> {
     }
 }
 
+/// The remaining tokens joined with single spaces, for the value after `keyword`.
 fn rest_of_line(
     keyword: &'static str,
     tokens: &mut SplitWhitespace<'_>,
@@ -79,6 +118,7 @@ fn rest_of_line(
     }
 }
 
+/// Parses the rest of an `id` line: `name <words>` or `author <words>`.
 fn parse_id(tokens: &mut SplitWhitespace<'_>) -> Result<EngineMessage, MessageError> {
     match tokens.next() {
         Some("name") => Ok(EngineMessage::IdName(rest_of_line("name", tokens)?)),
@@ -88,6 +128,7 @@ fn parse_id(tokens: &mut SplitWhitespace<'_>) -> Result<EngineMessage, MessageEr
     }
 }
 
+/// Parses the rest of an `info` line. Only `info string <words>` exists so far.
 fn parse_info(tokens: &mut SplitWhitespace<'_>) -> Result<EngineMessage, MessageError> {
     match tokens.next() {
         Some("string") => Ok(EngineMessage::InfoString(rest_of_line("string", tokens)?)),
@@ -96,6 +137,7 @@ fn parse_info(tokens: &mut SplitWhitespace<'_>) -> Result<EngineMessage, Message
     }
 }
 
+/// Parses one token as a move, naming the token in the error.
 fn parse_move(mv: &str) -> Result<UciMove, MessageError> {
     mv.parse().map_err(|source| MessageError::InvalidMove {
         text: mv.to_string(),
@@ -103,20 +145,19 @@ fn parse_move(mv: &str) -> Result<UciMove, MessageError> {
     })
 }
 
+/// The move after `keyword`, which must be the last token on the line.
 fn move_after(
     keyword: &'static str,
     tokens: &mut SplitWhitespace<'_>,
 ) -> Result<UciMove, MessageError> {
-    let move_after = match tokens.next() {
-        Some(mv) => parse_move(mv)?,
-        None => return Err(MessageError::MissingValue { keyword }),
-    };
     match tokens.next() {
-        Some(mv) => Err(MessageError::UnexpectedToken(mv.to_string())),
-        None => Ok(move_after),
+        Some(mv) => Ok(parse_move(mv)?),
+        None => Err(MessageError::MissingValue { keyword }),
     }
 }
 
+/// Parses the rest of a `bestmove` line: a move or the null move, then optionally
+/// `ponder <move>` (only after a real move).
 fn parse_best_move(tokens: &mut SplitWhitespace<'_>) -> Result<EngineMessage, MessageError> {
     let best = match tokens.next() {
         None => {
@@ -328,6 +369,11 @@ mod tests {
                         source: ParseError::InvalidSquare,
                     },
                 },
+            ),
+            (
+                "invalid bestmove keyword",
+                "bestmove e2e4 hello",
+                MessageError::UnexpectedToken("hello".to_string()),
             ),
             (
                 "missing bestmove ponder args",
