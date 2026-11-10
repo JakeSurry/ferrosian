@@ -3,7 +3,7 @@
 //! The other direction is [`EngineMessage`](super::EngineMessage).
 
 use super::{UciMove, UciMoveError};
-use crate::board::{Board, FenError};
+use crate::board::{Board, FenError, PositionErrors};
 use std::{
     fmt,
     num::ParseIntError,
@@ -46,6 +46,18 @@ pub enum CommandError {
         text: String,
         source: ParseIntError,
     },
+}
+
+/// Why a [`PositionCommand`] does not describe a playable position.
+#[derive(Clone, PartialEq, Eq, Debug, Error)]
+pub enum PositionCommandError {
+    /// The FEN base fails [`Board::validate`].
+    #[error("invalid FEN position")]
+    InvalidPosition { source: PositionErrors },
+
+    /// Move `index` (counted from 0) is not legal on the board it is played on.
+    #[error("illegal move {mv} at index {index}")]
+    IllegalMove { index: usize, mv: UciMove },
 }
 
 /// A command from the GUI to the engine.
@@ -289,13 +301,45 @@ impl fmt::Display for GuiCommand {
 
 /// The payload of a `position` command: a starting position and the moves played from it.
 ///
-/// The moves are syntax only; they are resolved against the board when the position is set up.
+/// Parsing checks syntax only: the FEN base is not validated and the moves are not checked
+/// for legality. [`PositionCommand::to_board`] does both and returns the resulting position.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PositionCommand {
     /// The position before any moves.
     pub base: PositionBase,
+
     /// The moves played from `base`, in order.
     pub moves: Vec<UciMove>,
+}
+
+impl PositionCommand {
+    /// The position this command describes: the base with every move played in order.
+    ///
+    /// Each move is resolved with [`UciMove::resolve`] on the board it is played on.
+    ///
+    /// # Errors
+    ///
+    /// [`PositionCommandError::InvalidPosition`] if the FEN base fails [`Board::validate`], and
+    /// [`PositionCommandError::IllegalMove`] for the first move that is not legal where it is
+    /// played. Later moves are not looked at.
+    pub fn to_board(&self) -> Result<Board, PositionCommandError> {
+        let mut board = match &self.base {
+            PositionBase::StartPos => Board::starting_position(),
+            PositionBase::Fen(board) => {
+                board
+                    .validate()
+                    .map_err(|source| PositionCommandError::InvalidPosition { source })?;
+                **board
+            }
+        };
+        for (index, &uci) in self.moves.iter().enumerate() {
+            let mv = uci
+                .resolve(&board)
+                .ok_or(PositionCommandError::IllegalMove { index, mv: uci })?;
+            board.make_move(mv);
+        }
+        Ok(board)
+    }
 }
 
 impl fmt::Display for PositionCommand {
@@ -322,6 +366,7 @@ fn write_moves(f: &mut fmt::Formatter<'_>, prefix: &'static str, moves: &[UciMov
 pub enum PositionBase {
     /// `startpos`: the standard starting position.
     StartPos,
+
     /// `fen <fen>`: a position parsed from FEN (syntax only, not yet validated). Boxed so the
     /// enum stays small.
     Fen(Box<Board>),
@@ -345,26 +390,37 @@ impl fmt::Display for PositionBase {
 pub struct GoParams {
     /// `wtime`: White's remaining clock time.
     pub wtime: Option<Duration>,
+
     /// `btime`: Black's remaining clock time.
     pub btime: Option<Duration>,
+
     /// `winc`: White's increment per move.
     pub winc: Option<Duration>,
+
     /// `binc`: Black's increment per move.
     pub binc: Option<Duration>,
+
     /// `movestogo`: moves until the next time control.
     pub moves_to_go: Option<u32>,
+
     /// `depth`: search this many plies only.
     pub depth: Option<u32>,
+
     /// `nodes`: search this many nodes only.
     pub nodes: Option<u64>,
+
     /// `mate`: look for a mate in this many moves.
     pub mate: Option<u32>,
+
     /// `movetime`: search exactly this long.
     pub move_time: Option<Duration>,
+
     /// `infinite`: search until `stop`.
     pub infinite: bool,
+
     /// `ponder`: search in pondering mode until `ponderhit` or `stop`.
     pub ponder: bool,
+
     /// `searchmoves`: consider only these root moves. Empty means all.
     pub search_moves: Vec<UciMove>,
 }
@@ -406,9 +462,10 @@ fn write_opt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::PositionError;
     use crate::movegen::MoveList;
     use crate::test_helpers::{KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6, STARTING_FEN, from_fen};
-    use crate::types::ParseError;
+    use crate::types::{Color, ParseError};
     use PositionBase::*;
     use std::num::IntErrorKind;
 
@@ -420,10 +477,7 @@ mod tests {
     }
 
     fn position(base: PositionBase, moves: &[&str]) -> GuiCommand {
-        GuiCommand::Position(PositionCommand {
-            base,
-            moves: ucims(moves),
-        })
+        GuiCommand::Position(position_command(base, moves))
     }
 
     fn custom_board() -> Board {
@@ -436,6 +490,17 @@ mod tests {
 
     fn go(params: GoParams) -> GuiCommand {
         GuiCommand::Go(params)
+    }
+
+    fn position_command(base: PositionBase, moves: &[&str]) -> PositionCommand {
+        PositionCommand {
+            base,
+            moves: ucims(moves),
+        }
+    }
+
+    fn fen(text: &str) -> PositionBase {
+        Fen(Box::new(from_fen(text)))
     }
 
     /// The `ParseIntError` that parsing `text` as a `T` gives. `ParseIntError` has no public
@@ -920,5 +985,122 @@ mod tests {
                 assert_eq!(Ok(command), text.parse::<GuiCommand>(), "parsing {text:?}");
             }
         }
+    }
+
+    #[test]
+    fn legal_sequences_give_exact_fen() {
+        let cases: [(&str, PositionBase, &[&str], &str); 7] = [
+            ("no moves", StartPos, &[], STARTING_FEN),
+            (
+                "double push sets en passant",
+                StartPos,
+                &["e2e4"],
+                "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            ),
+            (
+                "both colors, clocks advance",
+                StartPos,
+                &["e2e4", "e7e5", "g1f3"],
+                "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+            ),
+            (
+                "en passant only resolves on the board after d7d5",
+                StartPos,
+                &["e2e4", "a7a6", "e4e5", "d7d5", "e5d6"],
+                "rnbqkbnr/1pp1pppp/p2P4/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3",
+            ),
+            (
+                "FEN base, castling",
+                fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"),
+                &["e1g1"],
+                "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq - 1 1",
+            ),
+            (
+                "promotion",
+                fen("4k3/P7/8/8/8/8/8/4K3 w - - 0 1"),
+                &["a7a8q"],
+                "Q3k3/8/8/8/8/8/8/4K3 b - - 0 1",
+            ),
+            (
+                "underpromotion",
+                fen("4k3/P7/8/8/8/8/8/4K3 w - - 0 1"),
+                &["a7a8n"],
+                "N3k3/8/8/8/8/8/8/4K3 b - - 0 1",
+            ),
+        ];
+        for (why, base, moves, expected) in cases {
+            let cmd = position_command(base, moves);
+            assert_eq!(
+                expected.to_string(),
+                cmd.to_board().unwrap().to_fen(),
+                "cmd ({why})"
+            );
+        }
+    }
+
+    #[test]
+    fn illegal_moves_give_exact_index_and_move() {
+        let cases: [(&str, PositionBase, &[&str], usize, &str); 6] = [
+            (
+                "black's move with white to move",
+                StartPos,
+                &["e7e5"],
+                0,
+                "e7e5",
+            ),
+            ("empty from-square", StartPos, &["a3a4"], 0, "a3a4"),
+            (
+                "stops at the first illegal move",
+                StartPos,
+                &["e2e5", "e2e4"],
+                0,
+                "e2e5",
+            ),
+            (
+                "second illegal move is caught after making first move",
+                StartPos,
+                &["d2d4", "e2e4"],
+                1,
+                "e2e4",
+            ),
+            (
+                "castling through own pieces",
+                StartPos,
+                &["e2e4", "e7e5", "e1g1"],
+                2,
+                "e1g1",
+            ),
+            (
+                "promotion with no promotion piece letter",
+                fen("4k3/P7/8/8/8/8/8/4K3 w - - 0 1"),
+                &["a7a8"],
+                0,
+                "a7a8",
+            ),
+        ];
+        for (why, base, moves, index, mv) in cases {
+            let cmd = position_command(base, moves);
+            let expected = PositionCommandError::IllegalMove {
+                index,
+                mv: mv.parse().unwrap(),
+            };
+            assert_eq!(Some(expected), cmd.to_board().err(), "{cmd} ({why})");
+        }
+    }
+
+    #[test]
+    fn invalid_position() {
+        let cmd = position_command(fen("4k3/8/8/8/8/8/8/4KK2 w - - 0 1"), &["e1d1"]);
+        let Some(PositionCommandError::InvalidPosition { source }) = cmd.to_board().err() else {
+            panic!("{cmd}: expected InvalidPosition, got {:?}", cmd.to_board());
+        };
+        assert_eq!(
+            &[PositionError::InvalidKingCount {
+                color: Color::White,
+                count: 2
+            }],
+            source.errors(),
+            "{cmd}",
+        );
     }
 }

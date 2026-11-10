@@ -10,6 +10,7 @@ mod fen;
 pub use fen::{Fen, FenError};
 mod makemove;
 mod validate;
+pub use validate::{EnPassantError, PositionError, PositionErrors};
 
 use crate::attacks;
 use crate::types::{Bitboard, CastlingRights, Color, Piece, PieceType, Square};
