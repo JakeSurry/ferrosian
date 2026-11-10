@@ -487,6 +487,27 @@ mod tests {
                     ..GoParams::default()
                 }),
             ),
+            (
+                "setoption name Hash value 64",
+                GuiCommand::SetOption {
+                    name: "Hash".to_string(),
+                    value: Some("64".to_string()),
+                },
+            ),
+            (
+                "setoption name Clear Hash",
+                GuiCommand::SetOption {
+                    name: "Clear Hash".to_string(),
+                    value: None,
+                },
+            ),
+            (
+                "setoption name Book File value /home/jake/my book.bin",
+                GuiCommand::SetOption {
+                    name: "Book File".to_string(),
+                    value: Some("/home/jake/my book.bin".to_string()),
+                },
+            ),
         ];
         for (text, command) in cases {
             assert_eq!(text, command.to_string(), "printing {command:?}");
@@ -562,6 +583,14 @@ mod tests {
                     btime: Some(ms(300_000)),
                     ..GoParams::default()
                 }),
+            ),
+            (
+                "inner whitespace collapses to one space",
+                "setoption name  Clear   Hash",
+                GuiCommand::SetOption {
+                    name: "Clear Hash".to_string(),
+                    value: None,
+                },
             ),
         ];
         for (why, text, expected) in cases {
@@ -736,6 +765,33 @@ mod tests {
                         source: ParseError::InvalidSquare,
                     },
                 },
+            ),
+            (
+                "set option with no args",
+                "setoption",
+                CommandError::MissingValue {
+                    keyword: "setoption",
+                },
+            ),
+            (
+                "forgot name",
+                "setoption Hash value 64",
+                CommandError::UnexpectedToken("Hash".to_string()),
+            ),
+            (
+                "name with no args",
+                "setoption name",
+                CommandError::MissingValue { keyword: "name" },
+            ),
+            (
+                "name with no args with trailing keyword",
+                "setoption name value 64",
+                CommandError::MissingValue { keyword: "name" },
+            ),
+            (
+                "value with no args",
+                "setoption name Hash value",
+                CommandError::MissingValue { keyword: "value" },
             ),
         ];
         for (why, text, expected) in cases {
