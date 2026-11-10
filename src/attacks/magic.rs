@@ -6,6 +6,7 @@
 //! Also adds bitboard method [`Bitboard::magic_index`].
 
 use super::rays::{BISHOP_STEPS, ROOK_STEPS, Step, slider_rays};
+use crate::rng::Rng;
 use crate::types::{Bitboard, Square};
 use std::sync::LazyLock;
 
@@ -59,29 +60,8 @@ impl Bitboard {
     }
 }
 
-/// xorshift64 pseudo-random generator for magic candidates. Deterministic for a given seed.
-struct Rng(u64);
-
-impl Rng {
-    const fn new(seed: u64) -> Self {
-        debug_assert!(
-            0 != seed,
-            "cannot seed with 0; zero is xorshift's stuck state"
-        );
-        Self(seed)
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0
-    }
-
-    /// About 8 set bits on average: sparse candidates make good magics far more often.
-    fn sparse_u64(&mut self) -> u64 {
-        self.next_u64() & self.next_u64() & self.next_u64()
-    }
+fn sparse_u64(rng: &mut Rng) -> u64 {
+    rng.next_u64() & rng.next_u64() & rng.next_u64()
 }
 
 /// One square's entry in a magic table.
@@ -119,7 +99,7 @@ fn find_magic(square: Square, steps: &[Step], rng: &mut Rng) -> (Magic, Vec<Bitb
     loop {
         epoch += 1;
 
-        let magic = rng.sparse_u64();
+        let magic = sparse_u64(rng);
 
         // cheap rejection: a useful magic moves several mask bits into the top byte
         if mask.magic_index(magic, 56).count_ones() < 6 {
@@ -331,26 +311,9 @@ mod tests {
     }
 
     #[test]
-    fn rng_is_deterministic_and_never_zero() {
-        let mut first = Rng::new(TEST_SEED);
-        let mut second = Rng::new(TEST_SEED);
-        for draw in 0..100 {
-            let value = first.next_u64();
-            assert_eq!(value, second.next_u64(), "draw {draw}");
-            assert_ne!(0, value, "draw {draw}");
-        }
-    }
-
-    #[test]
-    fn rng_bits_look_random_and_sparse_is_sparse() {
-        // 1000 draws: next_u64 averages 32 set bits, sparse_u64 (three ANDed) about 8.
+    fn sparse_rng_bits_are_sparse() {
         let mut rng = Rng::new(TEST_SEED);
-        let dense: u32 = (0..1000).map(|_| rng.next_u64().count_ones()).sum();
-        let sparse: u32 = (0..1000).map(|_| rng.sparse_u64().count_ones()).sum();
-        assert!(
-            (28_000..36_000).contains(&dense),
-            "next_u64 total bits {dense}"
-        );
+        let sparse: u32 = (0..1000).map(|_| sparse_u64(&mut rng).count_ones()).sum();
         assert!(
             (6_000..10_000).contains(&sparse),
             "sparse_u64 total bits {sparse}"

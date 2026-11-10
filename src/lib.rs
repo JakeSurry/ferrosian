@@ -4,6 +4,7 @@ pub mod board;
 pub mod castling;
 pub mod movegen;
 pub mod perft;
+pub mod rng;
 pub mod types;
 pub mod uci;
 
