@@ -1,7 +1,8 @@
-//! xorshift64 pseudo-random generator. Deterministic for a given seed.
+//! xorshift64 pseudo-random generator. Deterministic for a given seed. Not cryptographic.
 #[derive(Debug)]
 pub struct Rng(u64);
 
+/// xorshift64 pseudo-random generator. Deterministic for a given seed. Not cryptographic.
 impl Rng {
     /// Generate a new Rng from a given seed.
     ///
@@ -16,6 +17,7 @@ impl Rng {
         Self(seed)
     }
 
+    /// Generate next pseudo-random number.
     pub fn next_u64(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -53,7 +55,7 @@ mod tests {
     const TEST_SEED: u64 = 0x0123_4567_89AB_CDEF;
 
     #[test]
-    fn rng_is_deterministic_and_never_zero() {
+    fn is_deterministic_and_never_zero() {
         let mut first = Rng::new(TEST_SEED);
         let mut second = Rng::new(TEST_SEED);
         for draw in 0..100 {
@@ -64,7 +66,7 @@ mod tests {
     }
 
     #[test]
-    fn rng_bits_look_random() {
+    fn bits_look_random() {
         let mut rng = Rng::new(TEST_SEED);
         let dense: u32 = (0..1000).map(|_| rng.next_u64().count_ones()).sum();
         assert!(
@@ -79,24 +81,24 @@ mod tests {
         let mut rng = Rng::new(TEST_SEED);
         for n in cases {
             for draw in 0..100 {
-                assert!(n > rng.below(n), "draw {draw}");
+                assert!(n > rng.below(n), "n {n}, draw {draw}");
             }
         }
     }
 
     #[test]
     fn below_hits_every_value_to_n() {
+        const N: usize = 4;
         let mut rng = Rng::new(TEST_SEED);
-        let n = 4;
-        let mut hit = [0; 4];
+        let mut hit = [false; N];
         for _ in 0..100 {
-            hit[rng.below(n)] = 1;
+            hit[rng.below(N)] = true;
         }
-        assert_eq!(4, hit.iter().sum(), "n={n}")
+        assert!(hit.iter().all(|&h| h), "{hit:?}")
     }
 
     #[test]
-    fn rng_choose() {
+    fn choose_returns_an_item() {
         let mut rng = Rng::new(TEST_SEED);
         let cases: [(&str, &[u8]); 3] = [
             ("empty", &[]),
@@ -104,12 +106,15 @@ mod tests {
             ("many elements", &[1, 2, 3, 4, 5]),
         ];
         for (why, items) in cases {
-            for draw in 0..100 {
-                match rng.choose(items) {
-                    None => assert!(items.is_empty(), "{why}, draw {draw}"),
-                    Some(e) => assert!(items.contains(e), "{why}, draw {draw}"),
+            match rng.choose(items) {
+                None => assert_eq!([] as [u8; 0], items, "{why}"),
+                Some(&1) => assert_eq!([1], items, "{why}"),
+                Some(e) => {
+                    for draw in 0..100 {
+                        assert!(items.contains(e), "{why}, draw {draw}");
+                    }
                 }
-            }
+            };
         }
     }
 
@@ -117,5 +122,12 @@ mod tests {
     #[should_panic(expected = "cannot seed with 0; zero is xorshift's stuck state")]
     fn seed_zero_panics() {
         Rng::new(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot call `below` with 0; no value in range `0..0`")]
+    fn below_zero_panics() {
+        let mut rng = Rng::new(TEST_SEED);
+        rng.below(0);
     }
 }

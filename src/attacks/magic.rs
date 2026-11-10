@@ -60,6 +60,7 @@ impl Bitboard {
     }
 }
 
+/// About 8 set bits on average: sparse candidates make good magics far more often.
 fn sparse_u64(rng: &mut Rng) -> u64 {
     rng.next_u64() & rng.next_u64() & rng.next_u64()
 }
