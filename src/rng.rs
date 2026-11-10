@@ -1,8 +1,9 @@
 //! xorshift64 pseudo-random generator. Deterministic for a given seed. Not cryptographic.
+
+/// xorshift64 pseudo-random generator. Deterministic for a given seed. Not cryptographic.
 #[derive(Debug)]
 pub struct Rng(u64);
 
-/// xorshift64 pseudo-random generator. Deterministic for a given seed. Not cryptographic.
 impl Rng {
     /// Generate a new Rng from a given seed.
     ///
@@ -105,15 +106,12 @@ mod tests {
             ("many elements", &[1, 2, 3, 4, 5]),
         ];
         for (why, items) in cases {
-            match rng.choose(items) {
-                None => assert_eq!([] as [u8; 0], items, "{why}"),
-                Some(&1) => assert_eq!([1], items, "{why}"),
-                Some(e) => {
-                    for draw in 0..100 {
-                        assert!(items.contains(e), "{why}, draw {draw}");
-                    }
+            for draw in 0..100 {
+                match rng.choose(items) {
+                    None => assert!(items.is_empty(), "{why}, draw {draw}"),
+                    Some(e) => assert!(items.contains(e), "{why}, draw {draw}"),
                 }
-            };
+            }
         }
     }
 

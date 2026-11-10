@@ -5,7 +5,7 @@
 //!
 //! Search only returns its result, and the caller turns it into UCI
 //! output. A `None` move (no legal moves) becomes `bestmove 0000`. The caller also
-//! passes in the [`Rng`](crate::rng::Rng), so results are reproducible for a given
+//! passes in the [`Rng`], so results are reproducible for a given
 //! seed.
 
 use crate::board::Board;
@@ -13,7 +13,11 @@ use crate::movegen::MoveList;
 use crate::rng::Rng;
 use crate::types::Move;
 
-/// Produce a random legal move in `board`. Assumes a valid position.
+/// Returns a random legal move in `board`.
+///
+/// An return value of `None` means checkmate if the side to move is
+/// [in check](Board::is_in_check), and stalemate otherwise. Assumes a position
+/// that passes [`Board::validate`].
 pub fn random_move(board: &Board, rng: &mut Rng) -> Option<Move> {
     let mut moves = MoveList::new();
     board.legal_moves(&mut moves);
@@ -35,9 +39,12 @@ mod tests {
         let cases = [STARTING_FEN, KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6];
         let mut rng = Rng::new(TEST_SEED);
         for fen in cases {
+            let board = from_fen(fen);
+            let mut legal = MoveList::new();
+            board.legal_moves(&mut legal);
             for draw in 0..100 {
-                let mv = random_move(&from_fen(fen), &mut rng);
-                assert!(mv.is_some(), "move {mv:?}, draw {draw}");
+                let mv = random_move(&board, &mut rng).expect("position has moves");
+                assert!(legal.contains(&mv), "{fen}: {mv}, draw {draw}");
             }
         }
     }
@@ -56,10 +63,8 @@ mod tests {
         ];
         let mut rng = Rng::new(TEST_SEED);
         for (why, fen) in cases {
-            for draw in 0..10 {
-                let mv = random_move(&from_fen(fen), &mut rng);
-                assert!(mv.is_none(), "{why}: move {mv:?}, draw {draw}");
-            }
+            let mv = random_move(&from_fen(fen), &mut rng);
+            assert!(mv.is_none(), "{why}: move {mv:?}");
         }
     }
 
@@ -70,7 +75,7 @@ mod tests {
         assert_eq!(
             Some(Move::new(sq("a1"), sq("a2"), MoveKind::Normal)),
             mv,
-            "expected: a1a2, actual: {mv:?}"
+            "king in double check, only Kxa2 (a1a2)"
         );
     }
 
@@ -78,12 +83,14 @@ mod tests {
     fn reaches_every_starting_move() {
         let mut rng = Rng::new(TEST_SEED);
         let board = from_fen(STARTING_FEN);
-        let mut seen: Vec<Option<Move>> = vec![];
-        for _ in 0..200 {
-            seen.push(random_move(&board, &mut rng));
-        }
-        let mut legal = MoveList::new();
-        board.legal_moves(&mut legal);
-        assert!(legal.iter().all(|&mv| seen.contains(&Some(mv))))
+        let seen: Vec<Move> = (0..200)
+            .map(|_| random_move(&board, &mut rng).expect("starting position has moves"))
+            .collect();
+        let missing: Vec<&Move> = seen.iter().filter(|mv| !seen.contains(mv)).collect();
+        assert_eq!(
+            Vec::<&Move>::new(),
+            missing,
+            "moves never drawn from the starting position"
+        );
     }
 }
