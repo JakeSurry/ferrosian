@@ -1,6 +1,7 @@
 use super::{UciMove, UciMoveError};
 use crate::board::{Board, FenError};
 use std::{
+    any::type_name,
     fmt,
     num::ParseIntError,
     str::{FromStr, SplitWhitespace},
@@ -18,6 +19,7 @@ pub enum GuiCommand {
     Quit,
     Debug(bool),
     Position(PositionCommand),
+    Go(GoParams),
     SetOption { name: String, value: Option<String> },
 }
 
@@ -38,6 +40,7 @@ impl FromStr for GuiCommand {
             "quit" => Self::Quit,
             "debug" => parse_debug(&mut tokens)?,
             "position" => parse_position(&mut tokens)?,
+            "go" => parse_go(&mut tokens)?,
             "setoption" => parse_setoption(&mut tokens)?,
             other => return Err(CommandError::UnknownCommand(other.to_string())),
         };
@@ -80,6 +83,34 @@ fn parse_moves(words: &[&str]) -> Result<Vec<UciMove>, CommandError> {
         .collect()
 }
 
+/// The next token parsed as a number, for the value after `keyword`.
+fn number<T: FromStr<Err = ParseIntError>>(
+    keyword: &'static str,
+    tokens: &mut SplitWhitespace<'_>,
+) -> Result<T, CommandError> {
+    match tokens.peekable().peek() {
+        Some(n) => n
+            .parse::<T>()
+            .map_err(|source| CommandError::InvalidNumber {
+                text: n.to_string(),
+                source,
+            }),
+        None => Err(CommandError::MissingValue {
+            keyword: keyword.to_string(),
+            args: format!("num<{}>", type_name::<T>()),
+        })?,
+    }
+}
+
+/// The next token as milliseconds. Negative values (a GUI's clock under lag) clamp to zero.
+fn millis(
+    keyword: &'static str,
+    tokens: &mut SplitWhitespace<'_>,
+) -> Result<Duration, CommandError> {
+    let ms = number::<i64>(keyword, tokens)?;
+    Ok(Duration::from_millis(u64::try_from(ms).unwrap_or(0)))
+}
+
 fn parse_debug(tokens: &mut SplitWhitespace) -> Result<GuiCommand, CommandError> {
     match tokens.next() {
         None => Err(CommandError::MissingValue {
@@ -118,6 +149,30 @@ fn parse_position(tokens: &mut SplitWhitespace) -> Result<GuiCommand, CommandErr
     };
     let moves = parse_moves(move_words.unwrap_or_default())?;
     Ok(GuiCommand::Position(PositionCommand { base, moves }))
+}
+
+fn parse_go(tokens: &mut SplitWhitespace) -> Result<GuiCommand, CommandError> {
+    let mut params = GoParams::default();
+    while let Some(keyword) = tokens.next() {
+        match keyword {
+            "wtime" => params.wtime = Some(millis("wtime", tokens)?),
+            "btime" => params.btime = Some(millis("btime", tokens)?),
+            "winc" => params.winc = Some(millis("winc", tokens)?),
+            "binc" => params.binc = Some(millis("binc", tokens)?),
+            "movestogo" => params.moves_to_go = Some(number("movestogo", tokens)?),
+            "depth" => params.depth = Some(number("depth", tokens)?),
+            "nodes" => params.nodes = Some(number("nodes", tokens)?),
+            "mate" => params.mate = Some(number("mate", tokens)?),
+            "movetime" => params.move_time = Some(millis("movetime", tokens)?),
+            "infinite" => params.infinite = true,
+            "ponder" => params.ponder = true,
+            "searchmoves" => {
+                params.search_moves = parse_moves(tokens.collect::<Vec<_>>().as_slice())?
+            }
+            other => return Err(CommandError::UnexpectedToken(other.to_string())),
+        }
+    }
+    Ok(GuiCommand::Go(params))
 }
 
 fn parse_setoption(tokens: &mut SplitWhitespace) -> Result<GuiCommand, CommandError> {
@@ -159,6 +214,7 @@ impl fmt::Display for GuiCommand {
             Self::Quit => f.write_str("quit"),
             Self::Debug(b) => write!(f, "debug {}", if *b { "on" } else { "off" }),
             Self::Position(pc) => write!(f, "{pc}"),
+            Self::Go(gc) => write!(f, "{gc}"),
             Self::SetOption { name, value } => {
                 write!(f, "setoption name {name}")?;
                 match value {
@@ -179,16 +235,15 @@ pub struct PositionCommand {
 impl fmt::Display for PositionCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "position {}", self.base)?;
-
-        if !self.moves.is_empty() {
-            write_moves(f, self.moves.as_slice())?;
-        }
-        Ok(())
+        write_moves(f, "moves", self.moves.as_slice())
     }
 }
 
-fn write_moves(f: &mut fmt::Formatter<'_>, moves: &[UciMove]) -> fmt::Result {
-    write!(f, " moves")?;
+fn write_moves(f: &mut fmt::Formatter<'_>, prefix: &'static str, moves: &[UciMove]) -> fmt::Result {
+    if moves.is_empty() {
+        return Ok(());
+    }
+    write!(f, " {prefix}")?;
     for mv in moves {
         write!(f, " {mv}")?;
     }
@@ -226,6 +281,39 @@ pub struct GoParams {
     pub search_moves: Vec<UciMove>,
 }
 
+impl fmt::Display for GoParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "go")?;
+        write_opt(f, "wtime", self.wtime.map(|d| d.as_millis()))?;
+        write_opt(f, "btime", self.btime.map(|d| d.as_millis()))?;
+        write_opt(f, "winc", self.winc.map(|d| d.as_millis()))?;
+        write_opt(f, "binc", self.binc.map(|d| d.as_millis()))?;
+        write_opt(f, "movestogo", self.moves_to_go)?;
+        write_opt(f, "depth", self.depth)?;
+        write_opt(f, "nodes", self.nodes)?;
+        write_opt(f, "mate", self.mate)?;
+        write_opt(f, "movetime", self.move_time.map(|d| d.as_millis()))?;
+        if self.infinite {
+            write!(f, " infinite")?
+        }
+        if self.ponder {
+            write!(f, " ponder")?
+        };
+        write_moves(f, "searchmoves", &self.search_moves)
+    }
+}
+
+fn write_opt(
+    f: &mut fmt::Formatter<'_>,
+    keyword: &str,
+    value: Option<impl fmt::Display>,
+) -> fmt::Result {
+    match value {
+        Some(v) => write!(f, " {keyword} {v}"),
+        None => Ok(()),
+    }
+}
+
 pub enum EngineMessage {
     IdName(String),
     IdAuthor(String),
@@ -257,6 +345,9 @@ pub enum CommandError {
 
     #[error("command error")]
     InvalidFen { source: FenError },
+
+    #[error("{text}")]
+    InvalidNumber { text: String, source: ParseIntError },
 }
 
 #[cfg(test)]
@@ -265,16 +356,26 @@ mod tests {
     use crate::types::ParseError;
     use PositionBase::*;
 
-    fn position(base: PositionBase, moves: &[&str]) -> GuiCommand {
-        let mvs: Vec<UciMove> = moves
+    fn ucims(moves: &[&str]) -> Vec<UciMove> {
+        moves
             .iter()
             .map(|mv| mv.parse::<UciMove>().unwrap())
-            .collect();
-        GuiCommand::Position(PositionCommand { base, moves: mvs })
+            .collect()
+    }
+
+    fn position(base: PositionBase, moves: &[&str]) -> GuiCommand {
+        GuiCommand::Position(PositionCommand {
+            base,
+            moves: ucims(moves),
+        })
     }
 
     fn custom_board() -> Board {
         "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1".parse().unwrap()
+    }
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
     }
 
     #[test]
@@ -305,10 +406,75 @@ mod tests {
                 "position fen 4k3/8/8/8/8/8/4P3/4K3 w - - 0 1 moves e2e4 e8d7",
                 position(Fen(Box::new(custom_board())), &["e2e4", "e8d7"]),
             ),
+            ("go", GuiCommand::Go(GoParams::default())),
+            (
+                "go infinite",
+                GuiCommand::Go(GoParams {
+                    infinite: true,
+                    ..GoParams::default()
+                }),
+            ),
+            (
+                "go depth 5",
+                GuiCommand::Go(GoParams {
+                    depth: Some(5),
+                    ..GoParams::default()
+                }),
+            ),
+            (
+                "go movetime 1000",
+                GuiCommand::Go(GoParams {
+                    move_time: Some(ms(1000)),
+                    ..GoParams::default()
+                }),
+            ),
+            (
+                "go wtime 300000 btime 300000 winc 2000 binc 2000 movestogo 40",
+                GuiCommand::Go(GoParams {
+                    wtime: Some(ms(300000)),
+                    btime: Some(ms(300000)),
+                    winc: Some(ms(2000)),
+                    binc: Some(ms(2000)),
+                    moves_to_go: Some(40),
+                    ..GoParams::default()
+                }),
+            ),
+            (
+                "go wtime 0",
+                GuiCommand::Go(GoParams {
+                    wtime: Some(ms(0)),
+                    ..GoParams::default()
+                }),
+            ),
+            (
+                "go wtime 1 btime 2 winc 3 binc 4 movestogo 5 depth 6 nodes 7 mate 8 movetime 9 infinite ponder searchmoves e2e4 d2d4",
+                GuiCommand::Go(GoParams {
+                    wtime: Some(ms(1)),
+                    btime: Some(ms(2)),
+                    winc: Some(ms(3)),
+                    binc: Some(ms(4)),
+                    moves_to_go: Some(5),
+                    depth: Some(6),
+                    nodes: Some(7),
+                    mate: Some(8),
+                    move_time: Some(ms(9)),
+                    infinite: true,
+                    ponder: true,
+                    search_moves: ucims(&["e2e4", "d2d4"]),
+                }),
+            ),
         ];
         for (text, command) in cases {
-            assert_eq!(command, text.parse().unwrap(), "{text} -> {command}");
-            assert_eq!(text, command.to_string(), "{command} -> {text}");
+            assert_eq!(
+                command,
+                text.parse().unwrap(),
+                "text -> command text: {text} command: {command}"
+            );
+            assert_eq!(
+                text,
+                command.to_string(),
+                "command -> text: command: {command} text: {text}"
+            );
         }
     }
 
@@ -332,6 +498,36 @@ mod tests {
                 "four-field fen prints with `0 1`",
                 "position fen 4k3/8/8/8/8/8/4P3/4K3 w - -",
                 position(Fen(Box::new(custom_board())), &[]),
+            ),
+            (
+                "go args unordered",
+                "go ponder wtime 1000",
+                GuiCommand::Go(GoParams {
+                    wtime: Some(ms(1000)),
+                    ponder: true,
+                    ..GoParams::default()
+                }),
+            ),
+            (
+                "negative time clamps to 0",
+                "go wtime -1",
+                GuiCommand::Go(GoParams {
+                    wtime: Some(ms(0)),
+                    ..GoParams::default()
+                }),
+            ),
+            (
+                "last duplicate arg wins",
+                "go depth 3 depth 5",
+                GuiCommand::Go(GoParams {
+                    depth: Some(5),
+                    ..GoParams::default()
+                }),
+            ),
+            (
+                "empty searchmoves list defaults",
+                "go searchmoves",
+                GuiCommand::Go(GoParams::default()),
             ),
         ];
         for (name, case, expected) in cases {
@@ -427,6 +623,14 @@ mod tests {
                         text: "e9".to_string(),
                         source: ParseError::InvalidSquare,
                     },
+                },
+            ),
+            (
+                "missing arg with no defaults",
+                "go depth",
+                CommandError::MissingValue {
+                    keyword: "depth".to_string(),
+                    args: "num<u32>".to_string(),
                 },
             ),
         ];
