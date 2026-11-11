@@ -12,7 +12,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    const NAME: &str = "Ferrosian 0.1.0";
+    const NAME: &str = concat!("Ferrosian", env!("CARGO_PKG_VERSION"));
     const AUTHOR: &str = "Jake";
 
     pub fn new(rng: Rng) -> Self {
@@ -34,7 +34,7 @@ impl Engine {
             GuiCommand::UciNewGame => self.handle_ucinewgame(),
             GuiCommand::Position(pc) => self.handle_position(pc, out),
             GuiCommand::Go(gp) => self.handle_go(gp, out),
-            GuiCommand::Stop => Self::handle_stop(out),
+            GuiCommand::Stop => Self::handle_stop(),
             GuiCommand::PonderHit => Self::handle_ponderhit(out),
             GuiCommand::Debug(b) => Self::handle_debug(b, out),
             GuiCommand::SetOption { name, value } => Self::handle_setoption(name, value, out),
@@ -93,11 +93,7 @@ impl Engine {
         });
     }
 
-    fn handle_stop(out: &mut impl FnMut(EngineMessage)) {
-        out(EngineMessage::InfoString(
-            "command `stop` not implemented yet".to_string(),
-        ))
-    }
+    fn handle_stop() {}
 
     fn handle_ponderhit(out: &mut impl FnMut(EngineMessage)) {
         out(EngineMessage::InfoString(
@@ -113,7 +109,7 @@ impl Engine {
 
     fn handle_setoption(name: String, _value: Option<String>, out: &mut impl FnMut(EngineMessage)) {
         out(EngineMessage::InfoString(format!(
-            "unknown option <{name}>"
+            "unknown option {name:?}"
         )));
     }
 }
@@ -122,8 +118,7 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::movegen::MoveList;
-    use crate::test_helpers::{TEST_SEED, sq};
-    use crate::types::{Move, MoveKind};
+    use crate::test_helpers::{STARTING_FEN, TEST_SEED, from_fen, sq};
     use crate::uci::{
         EngineMessage::{BestMove, IdAuthor, IdName, InfoString, ReadyOk, UciOk},
         UciMove,
@@ -134,7 +129,10 @@ mod tests {
         let mut out: Vec<EngineMessage> = vec![];
         let mut send_out = |em| out.push(em);
         for line in lines {
-            if let ControlFlow::Break(()) = engine.handle(line.parse().unwrap(), &mut send_out) {
+            if let ControlFlow::Break(()) = engine.handle(
+                line.parse().unwrap_or_else(|e| panic!("{line:?}: {e}")),
+                &mut send_out,
+            ) {
                 break;
             }
         }
@@ -147,18 +145,15 @@ mod tests {
             (
                 &["uci"],
                 vec![
-                    IdName("Ferrosian 0.1.0".to_string()),
-                    IdAuthor("Jake".to_string()),
+                    IdName(Engine::NAME.to_string()),
+                    IdAuthor(Engine::AUTHOR.to_string()),
                     UciOk,
                 ],
             ),
             (&["isready"], vec![ReadyOk]),
             (&["ucinewgame"], vec![]),
             (&["position startpos moves e2e4 e7e5"], vec![]),
-            (
-                &["stop"],
-                vec![InfoString("command `stop` not implemented yet".to_string())],
-            ),
+            (&["stop"], vec![]),
             (
                 &["ponderhit"],
                 vec![InfoString(
@@ -173,7 +168,7 @@ mod tests {
             ),
             (
                 &["setoption name Hash value 64"],
-                vec![InfoString("unknown option <Hash>".to_string())],
+                vec![InfoString("unknown option \"Hash\"".to_string())],
             ),
         ];
         for (cmd, expected) in cases {
@@ -225,6 +220,17 @@ mod tests {
                 ],
             ),
             (
+                &["position fen 8/8/8/8/8/8/8/8 w - - moves e2e4", "go"],
+                vec![
+                    InfoString("invalid FEN position: expected one king per color, found 0 kings for White; expected one king per color, found 0 kings for Black".to_string()),
+                    InfoString("current position none or invalid".to_string()),
+                    BestMove {
+                        best: None,
+                        ponder: None,
+                    },
+                ],
+            ),
+            (
                 &["position fen k7/8/2K5/1Q6/8/8/8/8 b - -", "go"],
                 vec![BestMove {
                     best: Some(UciMove {
@@ -243,51 +249,57 @@ mod tests {
     }
 
     #[test]
-    fn go_bestmove_resolves_after_move() {
-        let result = run(&["position startpos moves e2e4", "go"]);
-        let cmd = &result[0];
-        match cmd {
-            BestMove { best, .. } => {
-                let mut board = Board::starting_position();
-                board.make_move(Move::new(sq("e2"), sq("e4"), MoveKind::Normal));
-                let mut moves = MoveList::new();
-                board.legal_moves(&mut moves);
-                let bestmove = best.expect("expected `Some` best move, got `None`");
-                assert!(
-                    moves.iter().any(|&mv| UciMove::from(mv) == bestmove),
-                    "bestmove: {bestmove} not in legal moves"
-                )
-            }
-            other => panic!("expected an `EngineCommand::BestMove`, got {other}"),
-        }
-    }
+    fn go_bestmove_resolves() {
+        let cases: &[(&[&str], &str)] = &[
+            (
+                &["position startpos moves e2e4", "go"],
+                "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            ),
+            (
+                &["position startpos moves e2e4", "ucinewgame", "go"],
+                STARTING_FEN,
+            ),
+        ];
+        for (lines, fen) in cases {
+            let &[
+                BestMove {
+                    best: Some(best),
+                    ponder: None,
+                },
+            ] = run(lines).as_slice()
+            else {
+                panic!("did not get a `BestMove` command from engine")
+            };
+            let mut moves = MoveList::new();
+            from_fen(fen).legal_moves(&mut moves);
 
-    #[test]
-    fn go_bestmove_resolves_after_position_update() {
-        let result = run(&["position startpos moves e2e4", "ucinewgame", "go"]);
-        let cmd = &result[0];
-        match cmd {
-            BestMove { best, .. } => {
-                let mut moves = MoveList::new();
-                Board::starting_position().legal_moves(&mut moves);
-                let bestmove = best.expect("expected `Some` best move, got `None`");
-                assert!(
-                    moves.iter().any(|&mv| UciMove::from(mv) == bestmove),
-                    "bestmove: {bestmove} not in legal moves"
-                )
-            }
-            other => panic!("expected an `EngineCommand::BestMove`, got {other}"),
+            assert!(
+                moves.iter().any(|&mv| UciMove::from(mv) == best),
+                "bestmove: {best} not in legal moves"
+            )
         }
     }
 
     #[test]
     fn handle_quit() {
-        let mut engine = Engine::new(Rng::new(TEST_SEED));
-        let mut result: Vec<ControlFlow<()>> = ["isready", "quit", "uci"]
-            .iter()
-            .map(|s| engine.handle(s.parse().unwrap(), &mut |_| ()))
-            .collect();
-        assert_eq!(ControlFlow::Break(()), result.remove(1));
-        assert!(!result.contains(&ControlFlow::Break(())));
+        let cases = [
+            ("uci", ControlFlow::Continue(())),
+            ("isready", ControlFlow::Continue(())),
+            ("ucinewgame", ControlFlow::Continue(())),
+            ("position startpos", ControlFlow::Continue(())),
+            ("go", ControlFlow::Continue(())),
+            ("stop", ControlFlow::Continue(())),
+            ("ponderhit", ControlFlow::Continue(())),
+            ("debug off", ControlFlow::Continue(())),
+            ("setoption name Hash value 32", ControlFlow::Continue(())),
+            ("quit", ControlFlow::Break(())),
+        ];
+        for (cmd, expected) in cases {
+            let mut engine = Engine::new(Rng::new(TEST_SEED));
+            assert_eq!(
+                expected,
+                engine.handle(cmd.parse::<GuiCommand>().unwrap(), &mut |_| ())
+            )
+        }
     }
 }
