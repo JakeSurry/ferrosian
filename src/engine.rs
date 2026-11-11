@@ -36,7 +36,7 @@ impl Engine {
             GuiCommand::Go(gp) => self.handle_go(gp, out),
             GuiCommand::Stop => Self::handle_stop(out),
             GuiCommand::PonderHit => Self::handle_ponderhit(out),
-            GuiCommand::Debug(b) => Self::handle_debug(out),
+            GuiCommand::Debug(b) => Self::handle_debug(b, out),
             GuiCommand::SetOption { name, value } => Self::handle_setoption(name, value, out),
             GuiCommand::Quit => return ControlFlow::Break(()),
         };
@@ -81,7 +81,9 @@ impl Engine {
         let best = match &self.board {
             Some(board) => random_move(board, &mut self.rng),
             None => {
-                out(EngineMessage::InfoString("no valid position".to_string()));
+                out(EngineMessage::InfoString(
+                    "current position none or invalid".to_string(),
+                ));
                 None
             }
         };
@@ -92,28 +94,38 @@ impl Engine {
     }
 
     fn handle_stop(out: &mut impl FnMut(EngineMessage)) {
-        todo!()
+        out(EngineMessage::InfoString(
+            "command `stop` not implemented yet".to_string(),
+        ))
     }
 
     fn handle_ponderhit(out: &mut impl FnMut(EngineMessage)) {
-        todo!()
+        out(EngineMessage::InfoString(
+            "command `ponderhit` not implemented yet".to_string(),
+        ))
     }
 
-    fn handle_debug(out: &mut impl FnMut(EngineMessage)) {
-        todo!()
+    fn handle_debug(_b: bool, out: &mut impl FnMut(EngineMessage)) {
+        out(EngineMessage::InfoString(
+            "command `debug` not implemented yet".to_string(),
+        ))
     }
 
-    fn handle_setoption(name: String, value: Option<String>, out: &mut impl FnMut(EngineMessage)) {
-        todo!()
+    fn handle_setoption(name: String, _value: Option<String>, out: &mut impl FnMut(EngineMessage)) {
+        out(EngineMessage::InfoString(format!(
+            "unknown option <{name}>"
+        )));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::movegen::MoveList;
     use crate::test_helpers::{TEST_SEED, sq};
+    use crate::types::{Move, MoveKind};
     use crate::uci::{
-        EngineMessage::{BestMove, IdAuthor, IdName, ReadyOk, UciOk},
+        EngineMessage::{BestMove, IdAuthor, IdName, InfoString, ReadyOk, UciOk},
         UciMove,
     };
 
@@ -130,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_exact_cases() {
+    fn handle_command() {
         let cases: &[(&[&str], Vec<EngineMessage>)] = &[
             (
                 &["uci"],
@@ -143,6 +155,36 @@ mod tests {
             (&["isready"], vec![ReadyOk]),
             (&["ucinewgame"], vec![]),
             (&["position startpos moves e2e4 e7e5"], vec![]),
+            (
+                &["stop"],
+                vec![InfoString("command `stop` not implemented yet".to_string())],
+            ),
+            (
+                &["ponderhit"],
+                vec![InfoString(
+                    "command `ponderhit` not implemented yet".to_string(),
+                )],
+            ),
+            (
+                &["debug on"],
+                vec![InfoString(
+                    "command `debug` not implemented yet".to_string(),
+                )],
+            ),
+            (
+                &["setoption name Hash value 64"],
+                vec![InfoString("unknown option <Hash>".to_string())],
+            ),
+        ];
+        for (cmd, expected) in cases {
+            let cmds = cmd.join(" ");
+            assert_eq!(expected, &run(cmd), "cmd: {cmds}");
+        }
+    }
+
+    #[test]
+    fn handle_position_go() {
+        let cases: &[(&[&str], Vec<EngineMessage>)] = &[
             (
                 &["position fen k7/1Q6/2K5/8/8/8/8/8 b - -", "go"],
                 vec![BestMove {
@@ -165,6 +207,24 @@ mod tests {
                 }],
             ),
             (
+                &["position fen k7/8/8/8/8/8/8/8 w - -"],
+                vec![InfoString(
+                    "invalid FEN position: expected one king per color, found 0 kings for White"
+                        .to_string(),
+                )],
+            ),
+            (
+                &["position fen k7/8/K7/8/8/8/8/8 w - - moves e2e4", "go"],
+                vec![
+                    InfoString("illegal move e2e4 at index 0".to_string()),
+                    InfoString("current position none or invalid".to_string()),
+                    BestMove {
+                        best: None,
+                        ponder: None,
+                    },
+                ],
+            ),
+            (
                 &["position fen k7/8/2K5/1Q6/8/8/8/8 b - -", "go"],
                 vec![BestMove {
                     best: Some(UciMove {
@@ -179,6 +239,44 @@ mod tests {
         for (cmd, expected) in cases {
             let cmds = cmd.join(" ");
             assert_eq!(expected, &run(cmd), "cmd: {cmds}");
+        }
+    }
+
+    #[test]
+    fn go_bestmove_resolves_after_move() {
+        let result = run(&["position startpos moves e2e4", "go"]);
+        let cmd = &result[0];
+        match cmd {
+            BestMove { best, .. } => {
+                let mut board = Board::starting_position();
+                board.make_move(Move::new(sq("e2"), sq("e4"), MoveKind::Normal));
+                let mut moves = MoveList::new();
+                board.legal_moves(&mut moves);
+                let bestmove = best.expect("expected `Some` best move, got `None`");
+                assert!(
+                    moves.iter().any(|&mv| UciMove::from(mv) == bestmove),
+                    "bestmove: {bestmove} not in legal moves"
+                )
+            }
+            other => panic!("expected an `EngineCommand::BestMove`, got {other}"),
+        }
+    }
+
+    #[test]
+    fn go_bestmove_resolves_after_position_update() {
+        let result = run(&["position startpos moves e2e4", "ucinewgame", "go"]);
+        let cmd = &result[0];
+        match cmd {
+            BestMove { best, .. } => {
+                let mut moves = MoveList::new();
+                Board::starting_position().legal_moves(&mut moves);
+                let bestmove = best.expect("expected `Some` best move, got `None`");
+                assert!(
+                    moves.iter().any(|&mv| UciMove::from(mv) == bestmove),
+                    "bestmove: {bestmove} not in legal moves"
+                )
+            }
+            other => panic!("expected an `EngineCommand::BestMove`, got {other}"),
         }
     }
 
