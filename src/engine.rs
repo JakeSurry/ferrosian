@@ -12,7 +12,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    const NAME: &str = concat!("Ferrosian", env!("CARGO_PKG_VERSION"));
+    const NAME: &str = concat!("Ferrosian ", env!("CARGO_PKG_VERSION"));
     const AUTHOR: &str = "Jake";
 
     pub fn new(rng: Rng) -> Self {
@@ -298,7 +298,8 @@ mod tests {
             let mut engine = Engine::new(Rng::new(TEST_SEED));
             assert_eq!(
                 expected,
-                engine.handle(cmd.parse::<GuiCommand>().unwrap(), &mut |_| ())
+                engine.handle(cmd.parse::<GuiCommand>().unwrap(), &mut |_| ()),
+                "{cmd:?}"
             )
         }
     }
