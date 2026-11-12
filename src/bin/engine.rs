@@ -1,3 +1,8 @@
+//! Engine
+//!
+//! Test with cutechess-cli -engine cmd=target/release/engine -engine cmd=target/release/engine
+//! -each proto=uci tc=10+0.1 -games 10 -pgnout games/games.pgn from root dir.
+
 use anyhow::Context;
 use chess::{
     attacks::load_magics,
