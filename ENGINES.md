@@ -5,7 +5,7 @@ the version before it. Versions live in `src/versions/`; the registry `VERSIONS`
 `src/versions/mod.rs` is the source of truth.
 
 ```sh
-cargo run --release --bin engine -- --list-engines          # what exists
+cargo run --release --bin engine -- --list-engines           # what exists
 cargo run --release --bin engine -- --engine v0 --seed 1     # run one version over UCI
 ```
 
@@ -13,9 +13,12 @@ Matches use cutechess-cli with the `noob_3moves.epd` opening suite (each opening
 twice, colours swapped).
 
 ```sh
-
-cutechess-cli -engine cmd=target/release/engine arg=--engine arg=v0 name=v0 \
-cutechess-cli -engine stockfish -engine cmd=target/release/engine arg=--engine arg=v0 name=v0 -each proto=uci tc=10+0.1 -games 10 -pgnout games/games.pgn
+cutechess-cli `
+    -engine cmd=target/release/engine arg=--engine arg=v0 name=v0 `
+    -engine cmd=stockfish name=sf-skill0 "option.Skill Level=0" `
+    -each proto=uci tc=10+0.1 `
+    -openings file=books/noob_3moves.epd format=epd order=random -repeat `
+    -games 2 -rounds 50 -pgnout games/games.pgn
 ```
 
 ## Log
