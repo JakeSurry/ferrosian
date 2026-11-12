@@ -13,13 +13,6 @@
 //! runs. `--seed <n>` fixes the random seed so a game can be replayed; without it the seed
 //! comes from the clock. Unknown arguments are an error, so a typo never silently runs the
 //! wrong version. Example match between two versions, from the repository root:
-//!
-//! ```text
-//! cutechess-cli \
-//!     -engine cmd=target/release/engine arg=--engine arg=v1-material name=v1-material \
-//!     -engine cmd=target/release/engine arg=--engine arg=v0 name=v0 \
-//!     -each proto=uci tc=10+0.1 -games 10 -pgnout games/games.pgn
-//! ```
 
 use anyhow::{Context, bail};
 use chess::{

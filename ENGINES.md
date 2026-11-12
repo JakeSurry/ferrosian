@@ -12,6 +12,12 @@ cargo run --release --bin engine -- --engine v0 --seed 1     # run one version o
 Matches use cutechess-cli with the `noob_3moves.epd` opening suite (each opening played
 twice, colours swapped).
 
+```sh
+
+cutechess-cli -engine cmd=target/release/engine arg=--engine arg=v0 name=v0 \
+cutechess-cli -engine stockfish -engine cmd=target/release/engine arg=--engine arg=v0 name=v0 -each proto=uci tc=10+0.1 -games 10 -pgnout games/games.pgn
+```
+
 ## Log
 
 Newest first. "vs previous" is the new version's score against the one before it.
