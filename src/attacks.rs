@@ -19,7 +19,7 @@ mod rays;
 
 pub use leapers::{king_attacks, knight_attacks, pawn_attacks};
 pub use lines::{between, line};
-pub use magic::{bishop_attacks, queen_attacks, rook_attacks};
+pub use magic::{bishop_attacks, load_magics, queen_attacks, rook_attacks};
 
 #[cfg(test)]
 mod tests {

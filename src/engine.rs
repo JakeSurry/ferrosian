@@ -12,8 +12,8 @@ pub struct Engine {
 }
 
 impl Engine {
-    const NAME: &str = concat!("Ferrosian ", env!("CARGO_PKG_VERSION"));
-    const AUTHOR: &str = "Jake";
+    pub const NAME: &str = concat!("Ferrosian ", env!("CARGO_PKG_VERSION"));
+    pub const AUTHOR: &str = "Jake";
 
     pub fn new(rng: Rng) -> Self {
         Self {

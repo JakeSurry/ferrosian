@@ -30,6 +30,12 @@ pub fn queen_attacks(square: Square, blockers: Bitboard) -> Bitboard {
     rook_attacks(square, blockers) | bishop_attacks(square, blockers)
 }
 
+/// Force-load lazy magic tables
+pub fn load_magics() {
+    LazyLock::force(&ROOK_TABLE);
+    LazyLock::force(&BISHOP_TABLE);
+}
+
 /// The squares a slider passes through in one direction, stopping before the last on-board square.
 fn relevant_ray(start: Bitboard, step: Step) -> Bitboard {
     let mut current = step(start);
