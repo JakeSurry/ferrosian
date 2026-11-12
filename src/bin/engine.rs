@@ -11,8 +11,7 @@
 //!
 //! `--engine <id>` picks a version from [`chess::versions::VERSIONS`]; without it the newest
 //! runs. `--seed <n>` fixes the random seed so a game can be replayed; without it the seed
-//! comes from the clock. Unknown arguments are an error, so a typo never silently runs the
-//! wrong version. Example match between two versions, from the repository root:
+//! comes from the clock. Unknown arguments are an error.
 
 use anyhow::{Context, bail};
 use chess::{
