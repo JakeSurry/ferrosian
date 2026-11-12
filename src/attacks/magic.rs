@@ -30,7 +30,7 @@ pub fn queen_attacks(square: Square, blockers: Bitboard) -> Bitboard {
     rook_attacks(square, blockers) | bishop_attacks(square, blockers)
 }
 
-/// Force-load lazy magic tables
+/// Builds the rook and bishop magic tables now, instead of on the first slider lookup.
 pub fn load_magics() {
     LazyLock::force(&ROOK_TABLE);
     LazyLock::force(&BISHOP_TABLE);

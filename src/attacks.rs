@@ -7,7 +7,8 @@
 //!   (the private `leapers` module).
 //! - [`rook_attacks`], [`bishop_attacks`] and [`queen_attacks`] are magic bitboard lookups
 //!   (the private `magic` module). Their tables are built on first use from the ray walk in
-//!   the private `rays` module, which is also their test oracle.
+//!   the private `rays` module, which is also their test oracle. [`load_magics`] builds the
+//!   magic tables immediately.
 //! - [`between`] and [`line()`] read compile-time tables generated in `lines`.
 //!   `between`: a bitboard representing the squares between two squares.
 //!   `line`: a bitboard representing the line which two squares fall on.
