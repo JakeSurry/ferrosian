@@ -1,3 +1,14 @@
+//! The UCI engine's state machine: [`Engine`] turns each [`GuiCommand`] into the
+//! [`EngineMessage`]s it causes.
+//!
+//! `Engine` does no I/O. The caller parses lines, passes commands to [`Engine::handle`] and
+//! prints whatever it sends, which is all `bin/engine.rs` does. That keeps every protocol
+//! behaviour testable with typed values, and lets a game loop drive the engine in-process.
+//!
+//! Search is synchronous for now: `go` replies with `bestmove` before `handle` returns, so
+//! `stop` has nothing to stop. The move is [`random_move`]; real search replaces it in
+//! stage 9.
+
 use crate::board::Board;
 use crate::rng::Rng;
 use crate::search::random_move;
@@ -6,15 +17,24 @@ use crate::uci::{
 };
 use std::ops::ControlFlow;
 
+/// A UCI engine: the current position and the random number generator that picks moves.
+///
+/// The position is `None` after a `position` command that failed; `go` then answers
+/// `bestmove 0000` until a valid `position` or `ucinewgame` arrives.
 pub struct Engine {
     board: Option<Board>,
     rng: Rng,
 }
 
 impl Engine {
+    /// The name sent in `id name`, with the crate version.
     pub const NAME: &str = concat!("Ferrosian ", env!("CARGO_PKG_VERSION"));
+    /// The author sent in `id author`.
     pub const AUTHOR: &str = "Jake";
 
+    /// Creates an engine on the starting position that draws its moves from `rng`.
+    ///
+    /// Pass a fixed seed for reproducible games.
     pub fn new(rng: Rng) -> Self {
         Self {
             board: Some(Board::starting_position()),
@@ -22,7 +42,12 @@ impl Engine {
         }
     }
 
-    /// Handles one command. Sends replies through `out`; Break means "quit".
+    /// Handles one command, sending any replies through `out` in order.
+    ///
+    /// Returns [`ControlFlow::Break`] for `quit` and [`ControlFlow::Continue`] for every other
+    /// command. An invalid `position` sends an `info string` with the error and clears the
+    /// position, so the next `go` sends `bestmove 0000` instead of a move for the wrong board.
+    /// Commands that need no reply (`ucinewgame`, a valid `position`, `stop`) send nothing.
     pub fn handle(
         &mut self,
         cmd: GuiCommand,
