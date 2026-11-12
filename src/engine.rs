@@ -4,6 +4,11 @@
 //! `Engine` does no I/O. The caller parses lines, passes commands to [`Engine::handle`] and
 //! prints whatever it sends, which is all `bin/engine.rs` does. That keeps every protocol
 //! behaviour testable with typed values, and lets a game loop drive the engine in-process.
+//!
+//! Choosing the move is delegated to the selected version's [`Searcher`] (see
+//! [`crate::versions`]); `Engine` owns the position and the protocol around it. Search is
+//! synchronous for now: `go` replies with `bestmove` before `handle` returns, so `stop` has
+//! nothing to stop.
 
 use crate::board::Board;
 use crate::rng::Rng;
@@ -13,7 +18,7 @@ use crate::uci::{
 use crate::versions::{SearchRequest, Searcher, Version};
 use std::ops::ControlFlow;
 
-/// A UCI engine. Behaviors are dependent on [`Version`].
+/// A UCI engine running one [`Version`]: the current position plus that version's searcher.
 ///
 /// The position is `None` after a `position` command that failed; `go` then answers
 /// `bestmove 0000` until a valid `position` or `ucinewgame` arrives.
@@ -24,7 +29,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Creates an engine on the starting position that draws its moves from `rng`.
+    /// Creates an engine on the starting position that plays `version`, built with `rng`.
     ///
     /// Pass a fixed seed for reproducible games.
     pub fn new(version: &'static Version, rng: Rng) -> Self {
@@ -35,17 +40,17 @@ impl Engine {
         }
     }
 
-    /// Returns the version id of the engine.
+    /// The name sent in `id name`: `Ferrosian <id>`, for example `Ferrosian v0`.
     pub fn name(&self) -> String {
         format!("Ferrosian {}", self.version.id)
     }
 
-    /// Returns the author of the engine.
+    /// The author sent in `id author`, taken from the version.
     pub fn author(&self) -> &'static str {
         self.version.author
     }
 
-    /// Returns the version of the engine.
+    /// The version this engine plays.
     pub fn version(&self) -> &'static Version {
         self.version
     }
@@ -192,7 +197,9 @@ mod tests {
                     IdAuthor(version.author.to_string()),
                     UciOk
                 ],
-                out
+                out,
+                "uci on {}",
+                version.id
             );
         }
     }

@@ -1,3 +1,23 @@
+//! Engine versions: every [`Searcher`] that has been released, kept runnable forever.
+//!
+//! Each version lives in its own private module (`v0.rs`, then `v1.rs`, …) and is
+//! reached only through its entry in [`VERSIONS`], selected by id at runtime
+//! (`engine --engine <id>`). That lets any two versions play each other, so every
+//! improvement can be measured against the version before it and logged in `ENGINES.md`.
+//!
+//! Rules for version modules:
+//!
+//! - A version depends on core (board, movegen, uci types, rng) and on this module's
+//!   [`Searcher`] and [`SearchRequest`], **never on another version**. A new version starts
+//!   as a copy of the previous one.
+//! - A released version is frozen: it changes only when a core API change forces it.
+//! - Strength code (evaluation, search, move ordering, time allocation) lives in versions;
+//!   rules and protocol plumbing live in core.
+//!
+//! [`VERSIONS`] is the single source of truth for ids, `--list-engines`, the default
+//! ([`newest`]) and the tests. The contract tests in this module run every registered
+//! version, so a new version is tested as soon as it is added.
+
 use crate::{
     board::Board,
     rng::Rng,
@@ -8,37 +28,63 @@ use thiserror::Error;
 
 mod v0;
 
+/// Error from [`find`]: no registered version has this id.
 #[derive(Error, Clone, Eq, PartialEq, Debug)]
 pub enum UnknownVersion {
+    /// The id that was looked up.
     #[error("unknown engine version {0:?}")]
     Id(String),
 }
 
+/// Everything a [`Searcher`] gets for one `go` command.
+///
+/// New inputs (position history, a stop flag, time limits) become new fields here, so adding
+/// one never changes the signature of [`Searcher::search`] in every version.
+#[derive(Clone, Copy, Debug)]
 pub struct SearchRequest<'a> {
+    /// The position to search. It always passes [`Board::validate`].
     pub board: &'a Board,
+    /// The `go` command's parameters (clocks, depth, …). Versions may ignore them.
     pub params: &'a GoParams,
 }
 
-/// Assumes a validated position.
-/// Returns `None` only when there are no legal moves.
-/// Never sends [`BestMove`](`EngineMessage`).
+/// The move-choosing part of an engine version. [`Engine`](crate::engine::Engine) holds one
+/// as a `Box<dyn Searcher>` and handles the UCI protocol around it.
 pub trait Searcher {
+    /// Chooses a move in `req.board`.
+    ///
+    /// Returns `None` only when there are no legal moves (checkmate if the side to move is
+    /// [in check](Board::is_in_check), stalemate otherwise); the engine then sends
+    /// `bestmove 0000`.
+    ///
+    /// Progress goes through `report` (for example `info string` lines). A searcher never
+    /// sends [`EngineMessage::BestMove`] itself: the return value is the move, and the engine
+    /// turns it into `bestmove`.
     fn search(
         &mut self,
         req: SearchRequest<'_>,
         report: &mut dyn FnMut(EngineMessage),
     ) -> Option<Move>;
 
+    /// Called on `ucinewgame`. Override it to clear state that belongs to one game, such as
+    /// a transposition table. The default does nothing.
     fn new_game(&mut self) {}
 }
 
+/// One entry in [`VERSIONS`]: a version's id, its description and how to build it.
 pub struct Version {
+    /// Short, unique id: `v<N>` with an optional `-<word>` (`v0`, `v1-material`), where `N`
+    /// is the entry's index in [`VERSIONS`]. Sent as `id name Ferrosian <id>`.
     pub id: &'static str,
+    /// Sent as `id author`.
     pub author: &'static str,
+    /// One line on what this version does or changed, shown by `--list-engines`.
     pub summary: &'static str,
+    /// Builds a fresh searcher that takes its randomness from the given [`Rng`].
     pub build: fn(Rng) -> Box<dyn Searcher>,
 }
 
+/// Every released version, oldest first. The last entry is the default ([`newest`]).
 pub static VERSIONS: &[Version] = &[Version {
     id: "v0",
     author: "Jake",
@@ -46,10 +92,16 @@ pub static VERSIONS: &[Version] = &[Version {
     build: v0::build,
 }];
 
+/// The newest version, used when `--engine` is not given.
 pub fn newest() -> &'static Version {
     VERSIONS.last().expect("always at least one version")
 }
 
+/// Looks up a version by its exact, case-sensitive id.
+///
+/// # Errors
+///
+/// [`UnknownVersion`] if no entry has that id.
 pub fn find(id: &str) -> Result<&'static Version, UnknownVersion> {
     if let Some(version) = VERSIONS.iter().find(|v| v.id == id) {
         Ok(version)
@@ -133,7 +185,7 @@ mod tests {
             .iter()
             .filter_map(|v| (!seen.insert(v.id)).then_some(v.id))
             .collect();
-        assert_eq!(0, duplicates.len(), "duplicates: {duplicates:?}");
+        assert_eq!(Vec::<&str>::new(), duplicates, "duplicate ids in VERSIONS");
     }
 
     #[test]
@@ -148,6 +200,15 @@ mod tests {
                 rest.is_empty() || (rest.len() > 1 && rest.starts_with('-')),
                 "entry {i}: id {id:?} should be {number:?} or {number:?}-<word>"
             );
+            assert!(
+                id.len() <= 16,
+                "entry {i}: id {id:?} is longer than 16 characters"
+            );
+            assert!(
+                id.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+                "entry {i}: id {id:?} may only use a-z, 0-9 and '-'"
+            );
         }
     }
 
@@ -157,6 +218,8 @@ mod tests {
             ("v0", Ok("v0")),
             ("V0", Err(UnknownVersion::Id("V0".to_string()))),
             ("", Err(UnknownVersion::Id("".to_string()))),
+            ("v99", Err(UnknownVersion::Id("v99".to_string()))),
+            ("v0-", Err(UnknownVersion::Id("v0-".to_string()))),
         ];
         for (id, expected) in cases {
             assert_eq!(expected, find(id).map(|v| v.id), "{id:?}");

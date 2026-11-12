@@ -1,14 +1,23 @@
 //! The UCI engine binary: reads commands from stdin and writes replies to stdout.
 //!
 //! All protocol behaviour lives in [`chess::engine::Engine`]; this file only runs the loop.
-//! stdout carries UCI messages only, and everything else (the startup banner, unparsable
-//! lines) goes to stderr. The loop ends on `quit` or at the end of input.
-//!
-//! `--seed <n>` fixes the random seed so a game can be replayed; without it the seed comes
-//! from the clock. Example match against itself, from the repository root:
+//! In UCI mode stdout carries UCI messages only, and everything else (the startup banner,
+//! unparsable lines) goes to stderr. The loop ends on `quit` or at the end of input.
 //!
 //! ```text
-//! cutechess-cli -engine cmd=target/release/engine -engine cmd=target/release/engine \
+//! engine [--engine <id>] [--seed <n>]    run the UCI loop
+//! engine --list-engines                  print the registered versions and exit
+//! ```
+//!
+//! `--engine <id>` picks a version from [`chess::versions::VERSIONS`]; without it the newest
+//! runs. `--seed <n>` fixes the random seed so a game can be replayed; without it the seed
+//! comes from the clock. Unknown arguments are an error, so a typo never silently runs the
+//! wrong version. Example match between two versions, from the repository root:
+//!
+//! ```text
+//! cutechess-cli \
+//!     -engine cmd=target/release/engine arg=--engine arg=v1-material name=v1-material \
+//!     -engine cmd=target/release/engine arg=--engine arg=v0 name=v0 \
 //!     -each proto=uci tc=10+0.1 -games 10 -pgnout games/games.pgn
 //! ```
 
@@ -38,7 +47,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    preload(engine.name());
+    preload(&engine.name());
 
     for line in io::stdin().lines() {
         let line = line.context("reading stdin")?;
@@ -59,14 +68,20 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// What the command line asked for.
 enum Mode {
+    /// Run the UCI loop with this version and seed.
     Run {
         version: &'static Version,
         seed: u64,
     },
+    /// Print the registry and exit.
     List,
 }
 
+/// Parses the arguments after the program name.
+///
+/// Fails on a missing or invalid value, an unknown version id or an unknown argument.
 fn parse_args(mut args: impl Iterator<Item = String>) -> anyhow::Result<Mode> {
     let mut version: &'static Version = newest();
     let mut seed: u64 = (SystemTime::now()
@@ -74,6 +89,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> anyhow::Result<Mode> {
         .unwrap()
         .as_nanos() as u64)
         .max(1);
+    let mut list = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--engine" => {
@@ -90,16 +106,20 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> anyhow::Result<Mode> {
                     bail!("--seed value cannot be 0")
                 }
             }
-            "--list-engines" => return Ok(Mode::List),
+            "--list-engines" => list = true,
             other => bail!("unknown argument {other:?}"),
         }
     }
-    Ok(Mode::Run { version, seed })
+    if list {
+        Ok(Mode::List)
+    } else {
+        Ok(Mode::Run { version, seed })
+    }
 }
 
 /// Builds the magic tables before the first command, so the first `go` doesn't pay for it.
 /// Logs the time taken to stderr.
-fn preload(name: String) {
+fn preload(name: &str) {
     let start = Instant::now();
     eprintln!("Starting {} . . .", name);
     load_magics();

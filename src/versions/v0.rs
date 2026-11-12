@@ -1,3 +1,6 @@
+//! v0: plays a uniformly random legal move. The baseline every later version is measured
+//! against. Frozen.
+
 use crate::{
     movegen::MoveList,
     rng::Rng,
@@ -6,12 +9,12 @@ use crate::{
     versions::{SearchRequest, Searcher},
 };
 
+/// Picks uniformly among the legal moves, so a fixed seed replays the same game.
 struct V0 {
     rng: Rng,
 }
 
 impl Searcher for V0 {
-    /// Plays a uniform random legal move in `board`.
     fn search(
         &mut self,
         req: SearchRequest<'_>,
@@ -23,6 +26,7 @@ impl Searcher for V0 {
     }
 }
 
+/// Registry constructor for v0.
 pub(super) fn build(rng: Rng) -> Box<dyn Searcher> {
     Box::new(V0 { rng })
 }
@@ -32,9 +36,7 @@ mod tests {
     use super::*;
     use crate::{
         board::Board,
-        test_helpers::{
-            KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6, STARTING_FEN, TEST_SEED, from_fen, sq,
-        },
+        test_helpers::{STARTING_FEN, TEST_SEED, from_fen, sq},
         types::MoveKind,
         uci::GoParams,
         versions::SearchRequest,
@@ -51,38 +53,6 @@ mod tests {
     fn v0() -> V0 {
         V0 {
             rng: Rng::new(TEST_SEED),
-        }
-    }
-
-    #[test]
-    fn random_move_always_legal() {
-        let cases = [STARTING_FEN, KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6];
-        for fen in cases {
-            let board = from_fen(fen);
-            let mut legal = MoveList::new();
-            board.legal_moves(&mut legal);
-            for draw in 0..100 {
-                let mv = best_move(&mut v0(), &board).expect("position has moves");
-                assert!(legal.contains(&mv), "{fen}: {mv}, draw {draw}");
-            }
-        }
-    }
-
-    #[test]
-    fn no_moves_give_none() {
-        let cases = [
-            (
-                "checkmate with white to move",
-                "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3",
-            ),
-            (
-                "stalemate with black to move",
-                "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1",
-            ),
-        ];
-        for (why, fen) in cases {
-            let mv = best_move(&mut v0(), &from_fen(fen));
-            assert!(mv.is_none(), "{why}: move {mv:?}");
         }
     }
 
@@ -117,12 +87,11 @@ mod tests {
     fn same_seed_same_moves() {
         let mut engine1 = v0();
         let mut engine2 = v0();
-        let board1 = Board::starting_position();
-        let board2 = Board::starting_position();
+        let board = Board::starting_position();
         for mv_num in 0..10 {
-            let mv1 = best_move(&mut engine1, &board1);
-            let mv2 = best_move(&mut engine2, &board2);
-            assert_eq!(mv1, mv2, "move {mv_num:?}");
+            let mv1 = best_move(&mut engine1, &board);
+            let mv2 = best_move(&mut engine2, &board);
+            assert_eq!(mv1, mv2, "move {mv_num}");
         }
     }
 }

@@ -108,10 +108,7 @@ fn default_is_newest() {
 
 #[test]
 fn list_engines() {
-    let cases: &[&[&str]] = &[
-        &["--list-engines"],
-        &["--list-engines", "v0", "--list-engines"],
-    ];
+    let cases: &[&[&str]] = &[&["--list-engines"], &["--engine", "v0", "--list-engines"]];
     let vlist: String = VERSIONS
         .iter()
         .map(|v| {
