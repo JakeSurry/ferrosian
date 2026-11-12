@@ -29,8 +29,11 @@ fn main() -> anyhow::Result<()> {
     let mut engine = match parse_args(env::args().skip(1))? {
         Mode::Run { version, seed } => Engine::new(version, Rng::new(seed)),
         Mode::List => {
-            println!("Available Ferrosian versions: ");
-            VERSIONS.iter().for_each(|v| println!("  - {}\n", v.id));
+            print!("Available Ferrosian versions:");
+            VERSIONS
+                .iter()
+                .for_each(|v| print!("\n  {} :  {}", v.id, v.summary));
+            println!(" (default)");
             return Ok(());
         }
     };
@@ -75,20 +78,20 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> anyhow::Result<Mode> {
         match arg.as_str() {
             "--engine" => {
                 let vnum = args.next().context("--engine needs a value")?;
-                version = find(&vnum).context("no engine version {vnum:?}")?;
+                version = find(&vnum).with_context(|| format!("no engine version {vnum:?} (try running with \"--list-engines\" to see available options)"))?;
             }
             "--seed" => {
                 seed = args
                     .next()
                     .context("--seed needs a value")?
                     .parse::<u64>()
-                    .context("--seed value failed to parse into 64")?;
+                    .context("--seed value failed to parse into u64")?;
                 if 0 == seed {
                     bail!("--seed value cannot be 0")
                 }
             }
-            "--list" => return Ok(Mode::List),
-            other => bail!("unkown argument {other:?}"),
+            "--list-engines" => return Ok(Mode::List),
+            other => bail!("unknown argument {other:?}"),
         }
     }
     Ok(Mode::Run { version, seed })

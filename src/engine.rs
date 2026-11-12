@@ -24,9 +24,6 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// The author sent in `id author`.
-    pub const AUTHOR: &str = "Jake";
-
     /// Creates an engine on the starting position that draws its moves from `rng`.
     ///
     /// Pass a fixed seed for reproducible games.
