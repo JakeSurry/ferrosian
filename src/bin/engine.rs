@@ -57,10 +57,10 @@ fn seed() -> anyhow::Result<u64> {
         }
         Ok(user_seed)
     } else {
-        Ok(SystemTime::now()
+        Ok((SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
-            .max(1) as u64)
+            .as_nanos() as u64)
+            .max(1))
     }
 }
