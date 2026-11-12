@@ -25,18 +25,22 @@ fn run_engine(args: &[&str], input: &str) -> Output {
     child.wait_with_output().expect("engine runs")
 }
 
-#[test]
-fn session() {
-    let input = "uci\nisready\nposition startpos moves e2e4\ngo\nquit\n";
-    let output = run_engine(&["--seed", "1"], input);
+#[track_caller]
+fn stdout_of(args: &[&str], input: &str) -> String {
+    let output = run_engine(args, input);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
         "{input:?}: {}\n{stderr}",
         output.status
     );
+    String::from_utf8(output.stdout).expect("stdout is UTF-8")
+}
 
-    let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+#[test]
+fn session() {
+    let input = "uci\nisready\nposition startpos moves e2e4\ngo\nquit\n";
+    let stdout = stdout_of(&["--seed", "1"], input);
     let lines: Vec<&str> = stdout.lines().collect();
 
     let [id_name, id_author, uciok, readyok, bestmove] = lines.as_slice() else {
@@ -69,15 +73,7 @@ fn session() {
 #[test]
 fn end_of_input_exits() {
     let input = "uci\nisready\nposition startpos moves e2e4\ngo\n";
-    let output = run_engine(&["--seed", "1"], input);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "{input:?}: {}\n{stderr}",
-        output.status
-    );
-
-    let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
+    let stdout = stdout_of(&["--seed", "1"], input);
     let lines: Vec<&str> = stdout.lines().collect();
 
     let Some(bestmove) = lines.last() else {
@@ -110,25 +106,37 @@ fn bad_input_goes_to_stderr() {
 #[test]
 fn same_seed_same_output() {
     let input = "position startpos\ngo\ngo\ngo\ngo\ngo";
+    let output = run_engine(&["--seed", "1"], input);
     assert_eq!(
+        output.stdout,
         run_engine(&["--seed", "1"], input).stdout,
-        run_engine(&["--seed", "1"], input).stdout
-    )
+        "{input:?} --seed 1"
+    );
+    assert!(
+        !output.stdout.is_empty(),
+        "{:?}: {input:?} --seed 1: stdout is empty",
+        output.stderr
+    );
 }
 
 #[test]
 fn bad_seed_fails() {
     let input = "quit\n";
     let cases: &[(&[&str], &str)] = &[
-        (&["--seed", "0"], "0"),
+        (&["--seed", "0"], "cannot be 0"),
         (&["--seed", "abc"], "failed to parse"),
         (&["--seed"], "needs a value"),
     ];
     for (args, fragment) in cases {
-        let stderr = String::from_utf8_lossy(&run_engine(args, input).stderr).into_owned();
+        let output = run_engine(args, input);
+        let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
             stderr.contains(fragment),
-            "{input:?}: {stderr:?} expected to contain {fragment:?}"
-        )
+            "{input:?}: {args:?}: {stderr:?} expected to contain {fragment:?}"
+        );
+        assert!(
+            !output.status.success(),
+            "{input:?}: {args:?}: {stderr:?} expected expected to exit unsuccessfully"
+        );
     }
 }
