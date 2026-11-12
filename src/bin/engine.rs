@@ -49,9 +49,12 @@ fn seed() -> anyhow::Result<u64> {
     if let Some(pos) = args.iter().position(|arg| arg == "--seed") {
         let user_seed = args
             .get(pos + 1)
-            .expect("--seed needs a value")
-            .parse::<u64>()?;
-        assert_ne!(0, user_seed, "--seed value cannot be 0");
+            .context("--seed needs a value")?
+            .parse::<u64>()
+            .context("--seed value failed to parse into u64")?;
+        if 0 == user_seed {
+            anyhow::bail!("--seed value cannot be 0")
+        }
         Ok(user_seed)
     } else {
         Ok(SystemTime::now()
