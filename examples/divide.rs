@@ -9,8 +9,8 @@
 //! Timing and board goe to stderr, `> out.txt` diffable to stockfish.
 
 use anyhow::{Context, Result};
-use chess::board::{Board, STARTING_FEN};
-use chess::perft::divide;
+use ferrosian::board::{Board, STARTING_FEN};
+use ferrosian::perft::divide;
 use std::env;
 use std::time::Instant;
 

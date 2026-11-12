@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chess::{board::Board, movegen::MoveList};
+use ferrosian::{board::Board, movegen::MoveList};
 use std::env;
 
 fn main() -> Result<()> {

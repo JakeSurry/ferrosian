@@ -1,5 +1,5 @@
 use anyhow::Context;
-use chess::{attacks, types::Square};
+use ferrosian::{attacks, types::Square};
 use std::env;
 
 fn main() -> anyhow::Result<()> {

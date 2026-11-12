@@ -1,5 +1,5 @@
 use anyhow::Context;
-use chess::types::Bitboard;
+use ferrosian::types::Bitboard;
 use std::env;
 
 fn main() -> anyhow::Result<()> {

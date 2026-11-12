@@ -67,7 +67,7 @@ pub enum PositionCommandError {
 /// newline.
 ///
 /// ```
-/// use chess::uci::GuiCommand;
+/// use ferrosian::uci::GuiCommand;
 ///
 /// let cmd: GuiCommand = "go  depth 5 wtime 1000".parse().unwrap();
 /// assert_eq!("go wtime 1000 depth 5", cmd.to_string());

@@ -46,7 +46,7 @@ const STOCKFISH_NULL_MOVE: &str = "(none)";
 /// String values must not contain a newline, or the message prints as two lines.
 ///
 /// ```
-/// use chess::uci::EngineMessage;
+/// use ferrosian::uci::EngineMessage;
 ///
 /// let msg: EngineMessage = "bestmove  e2e4 ponder e7e5".parse().unwrap();
 /// assert_eq!("bestmove e2e4 ponder e7e5", msg.to_string());

@@ -1,6 +1,6 @@
 //! The UCI engine binary: reads commands from stdin and writes replies to stdout.
 //!
-//! All protocol behaviour lives in [`chess::engine::Engine`]; this file only runs the loop.
+//! All protocol behaviour lives in [`ferrosian::engine::Engine`]; this file only runs the loop.
 //! In UCI mode stdout carries UCI messages only, and everything else (the startup banner,
 //! unparsable lines) goes to stderr. The loop ends on `quit` or at the end of input.
 //!
@@ -9,12 +9,12 @@
 //! engine --list-engines                  print the registered versions and exit
 //! ```
 //!
-//! `--engine <id>` picks a version from [`chess::versions::VERSIONS`]; without it the newest
+//! `--engine <id>` picks a version from [`ferrosian::versions::VERSIONS`]; without it the newest
 //! runs. `--seed <n>` fixes the random seed so a game can be replayed; without it the seed
 //! comes from the clock. Unknown arguments are an error.
 
 use anyhow::{Context, bail};
-use chess::{
+use ferrosian::{
     attacks::load_magics,
     engine::Engine,
     rng::Rng,

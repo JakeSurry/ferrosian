@@ -19,7 +19,7 @@ use thiserror::Error;
 /// `Option<UciMove>`.
 ///
 /// ```
-/// use chess::uci::UciMove;
+/// use ferrosian::uci::UciMove;
 ///
 /// let mv: UciMove = "e7e8q".parse().unwrap();
 /// assert_eq!("e7e8q", mv.to_string());

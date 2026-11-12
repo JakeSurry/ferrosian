@@ -1,5 +1,5 @@
 use anyhow::Context;
-use chess::{
+use ferrosian::{
     attacks,
     types::{Bitboard, Square},
 };

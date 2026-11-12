@@ -19,14 +19,14 @@ impl Board {
     /// copy the board first (`Board` is `Copy`):
     ///
     /// ```
-    /// use chess::board::Board;
-    /// use chess::types::{Move, MoveKind};
+    /// use ferrosian::board::Board;
+    /// use ferrosian::types::{Move, MoveKind};
     ///
     /// let board = Board::starting_position();
     /// let mut next = board;
     /// next.make_move(Move::new("e2".parse()?, "e4".parse()?, MoveKind::DoublePush));
     /// assert_ne!(board, next);
-    /// # Ok::<(), chess::types::ParseError>(())
+    /// # Ok::<(), ferrosian::types::ParseError>(())
     /// ```
     pub fn make_move(&mut self, mv: Move) {
         let us = self.side_to_move;

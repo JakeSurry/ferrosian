@@ -1,8 +1,8 @@
 //! Runs the `engine` binary as a GUI would: UCI lines in on stdin, replies out on stdout.
 
-use chess::board::Board;
-use chess::uci::EngineMessage;
-use chess::versions::{VERSIONS, newest};
+use ferrosian::board::Board;
+use ferrosian::uci::EngineMessage;
+use ferrosian::versions::{VERSIONS, newest};
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
 

@@ -1,4 +1,4 @@
-use chess::board::Board;
+use ferrosian::board::Board;
 use std::env;
 
 fn main() -> anyhow::Result<()> {

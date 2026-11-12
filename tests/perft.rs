@@ -5,8 +5,8 @@
 //! takes a few seconds per position. The `#[ignore]`d `*_deep` tests go one
 //! depth further; run them with `cargo test --release -- --ignored`.
 
-use chess::board::Board;
-use chess::perft::perft;
+use ferrosian::board::Board;
+use ferrosian::perft::perft;
 
 const STARTING: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const KIWIPETE: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -";
