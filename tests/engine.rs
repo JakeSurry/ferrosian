@@ -96,7 +96,7 @@ fn bad_input_goes_to_stderr() {
     );
 
     let stdout = String::from_utf8(output.stdout).expect("stdout is UTF-8");
-    assert_eq!("readyok\n", stdout);
+    assert_eq!("readyok\n", stdout, "{input:?}");
     assert!(
         stderr.contains("bogus"),
         "{input:?}: {stderr:?} expected to contain \"bogus\""
@@ -106,16 +106,10 @@ fn bad_input_goes_to_stderr() {
 #[test]
 fn same_seed_same_output() {
     let input = "position startpos\ngo\ngo\ngo\ngo\ngo";
-    let output = run_engine(&["--seed", "1"], input);
-    assert_eq!(
-        output.stdout,
-        run_engine(&["--seed", "1"], input).stdout,
-        "{input:?} --seed 1"
-    );
+    let stdout = stdout_of(&["--seed", "1"], input);
     assert!(
-        !output.stdout.is_empty(),
-        "{:?}: {input:?} --seed 1: stdout is empty",
-        output.stderr
+        !stdout.is_empty(),
+        "{input:?} --seed 1: stdout {stdout:?} is empty",
     );
 }
 
@@ -136,7 +130,7 @@ fn bad_seed_fails() {
         );
         assert!(
             !output.status.success(),
-            "{input:?}: {args:?}: {stderr:?} expected expected to exit unsuccessfully"
+            "{input:?}: {args:?}: {stderr:?} expected to exit unsuccessfully"
         );
     }
 }
