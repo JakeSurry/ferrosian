@@ -4,9 +4,17 @@ use derive_more::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, LowerHex, No
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
-// ---------------------------------------------------------------------------
-// Color
-// ---------------------------------------------------------------------------
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Error)]
+pub enum ParseError {
+    #[error("invalid square name")]
+    InvalidSquare,
+
+    #[error("invalid castling rights")]
+    InvalidCastlingRights,
+
+    #[error("invalid color char")]
+    InvalidColor,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
 #[repr(u8)]
@@ -70,10 +78,6 @@ pub enum PieceType {
     King = 5,
 }
 
-// ---------------------------------------------------------------------------
-// PieceType
-// ---------------------------------------------------------------------------
-
 impl PieceType {
     /// Every piece type, in index order.
     pub const ALL: [PieceType; 6] = [
@@ -125,10 +129,6 @@ impl fmt::Display for PieceType {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Piece
-// ---------------------------------------------------------------------------
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Piece {
     pub color: Color,
@@ -172,10 +172,6 @@ impl fmt::Display for Piece {
         write!(f, "{}", self.fen_char())
     }
 }
-
-// ---------------------------------------------------------------------------
-// Square
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Square(u8);
@@ -250,10 +246,6 @@ impl FromStr for Square {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Castling
-// ---------------------------------------------------------------------------
 
 /// The side of the board a castling move goes to.
 ///
@@ -366,21 +358,21 @@ impl FromStr for CastlingRights {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Move
-// ---------------------------------------------------------------------------
-
 /// Describe the function of a move.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum MoveKind {
     /// normal moves and ordinary captures.
     Normal,
+
     /// double pawn push, adds en passant square.
     DoublePush,
+
     /// en passant, removes captured pawn.
     EnPassant,
+
     /// castle to a given `CastleSide`, rook move comes from [`CastleSide::path`].
     Castle(CastleSide),
+
     /// promotion to a given `PieceType`
     Promotion(PieceType),
 }
@@ -428,10 +420,6 @@ impl fmt::Display for Move {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Bitboard
-// ---------------------------------------------------------------------------
-
 /// A u64 newtype where each bit represents a square.
 ///
 /// a1 = 0, h8 = 2.pow(63)
@@ -453,26 +441,6 @@ impl fmt::Display for Move {
     LowerHex,
 )]
 pub struct Bitboard(pub u64);
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Error)]
-pub enum ParseError {
-    #[error("invalid square name")]
-    InvalidSquare,
-
-    #[error("invalid castling rights")]
-    InvalidCastlingRights,
-
-    #[error("invalid color char")]
-    InvalidColor,
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
