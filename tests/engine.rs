@@ -1,10 +1,11 @@
 //! Runs the `engine` binary as a GUI would: UCI lines in on stdin, replies out on stdout.
 
 use chess::board::Board;
-use chess::engine::Engine;
 use chess::uci::EngineMessage;
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
+
+const V0_SEED_1: &[&str] = &["--engine", "v0", "--seed", "1"];
 
 /// Runs the engine with `args`, feeds it `input`, closes stdin and waits for it to exit.
 #[track_caller]
@@ -40,15 +41,15 @@ fn stdout_of(args: &[&str], input: &str) -> String {
 #[test]
 fn session() {
     let input = "uci\nisready\nposition startpos moves e2e4\ngo\nquit\n";
-    let stdout = stdout_of(&["--seed", "1"], input);
+    let stdout = stdout_of(V0_SEED_1, input);
     let lines: Vec<&str> = stdout.lines().collect();
 
     let [id_name, id_author, uciok, readyok, bestmove] = lines.as_slice() else {
         panic!("{input:?}: expected 5 lines, got {lines:#?}");
     };
     let expected = [
-        format!("id name {}", Engine::NAME),
-        format!("id author {}", Engine::AUTHOR),
+        "Ferrosian v0".to_string(),
+        "Jake".to_string(),
         "uciok".to_string(),
         "readyok".to_string(),
     ];

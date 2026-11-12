@@ -6,9 +6,9 @@ pub mod engine;
 pub mod movegen;
 pub mod perft;
 pub mod rng;
-pub mod search;
 pub mod types;
 pub mod uci;
+pub mod versions;
 
 #[cfg(test)]
 mod test_helpers;

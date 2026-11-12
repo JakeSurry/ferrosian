@@ -12,12 +12,13 @@
 //!     -each proto=uci tc=10+0.1 -games 10 -pgnout games/games.pgn
 //! ```
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use chess::{
     attacks::load_magics,
     engine::Engine,
     rng::Rng,
     uci::{CommandError, GuiCommand},
+    versions::{VERSIONS, Version, find, newest},
 };
 use std::{
     env, io,
@@ -25,9 +26,16 @@ use std::{
 };
 
 fn main() -> anyhow::Result<()> {
-    preload();
+    let mut engine = match parse_args(env::args().skip(1))? {
+        Mode::Run { version, seed } => Engine::new(version, Rng::new(seed)),
+        Mode::List => {
+            println!("Available Ferrosian versions: ");
+            VERSIONS.iter().for_each(|v| println!("  - {}\n", v.id));
+            return Ok(());
+        }
+    };
 
-    let mut engine = Engine::new(Rng::new(seed()?));
+    preload(engine.name());
 
     for line in io::stdin().lines() {
         let line = line.context("reading stdin")?;
@@ -48,38 +56,52 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+enum Mode {
+    Run {
+        version: &'static Version,
+        seed: u64,
+    },
+    List,
+}
+
+fn parse_args(mut args: impl Iterator<Item = String>) -> anyhow::Result<Mode> {
+    let mut version: &'static Version = newest();
+    let mut seed: u64 = (SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64)
+        .max(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--engine" => {
+                let vnum = args.next().context("--engine needs a value")?;
+                version = find(&vnum).context("no engine version {vnum:?}")?;
+            }
+            "--seed" => {
+                seed = args
+                    .next()
+                    .context("--seed needs a value")?
+                    .parse::<u64>()
+                    .context("--seed value failed to parse into 64")?;
+                if 0 == seed {
+                    bail!("--seed value cannot be 0")
+                }
+            }
+            "--list" => return Ok(Mode::List),
+            other => bail!("unkown argument {other:?}"),
+        }
+    }
+    Ok(Mode::Run { version, seed })
+}
+
 /// Builds the magic tables before the first command, so the first `go` doesn't pay for it.
 /// Logs the time taken to stderr.
-fn preload() {
+fn preload(name: String) {
     let start = Instant::now();
-    eprintln!("Starting {} . . .", Engine::NAME);
+    eprintln!("Starting {} . . .", name);
     load_magics();
     eprintln!(
         ". . . ready in {:.3} seconds!\n",
         start.elapsed().as_secs_f32()
     )
-}
-
-/// The seed from `--seed <n>`, or the clock in nanoseconds if the flag is absent.
-///
-/// Fails if the value is missing, not a `u64`, or 0 (which [`Rng::new`] rejects).
-fn seed() -> anyhow::Result<u64> {
-    let args: Vec<String> = env::args().collect();
-    if let Some(pos) = args.iter().position(|arg| arg == "--seed") {
-        let user_seed = args
-            .get(pos + 1)
-            .context("--seed needs a value")?
-            .parse::<u64>()
-            .context("--seed value failed to parse into u64")?;
-        if 0 == user_seed {
-            anyhow::bail!("--seed value cannot be 0")
-        }
-        Ok(user_seed)
-    } else {
-        Ok((SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64)
-            .max(1))
-    }
 }
