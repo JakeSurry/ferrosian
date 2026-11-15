@@ -50,8 +50,125 @@ impl FromStr for SanMove {
     type Err = SanParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!()
+        if s.is_empty() {
+            return Err(SanParseError::Empty);
+        }
+        if !s.is_ascii() {
+            return Err(SanParseError::NonAscii(s.to_string()));
+        }
+        let rest = s.trim_matches(['+', '#', '?', '!']);
+        match rest {
+            "O-O" | "0-0" => return Ok(Self::Castle(CastleSide::KingSide)),
+            "O-O-O" | "0-0-0" => return Ok(Self::Castle(CastleSide::QueenSide)),
+            _ => (),
+        }
+
+        let (rest, promotion) =
+            strip_promotion(rest).ok_or_else(|| SanParseError::InvalidPromotion(s.to_string()))?;
+        let (rest, target) =
+            split_target(rest).ok_or_else(|| SanParseError::Malformed(s.to_string()))?;
+        let to: Square = target
+            .parse()
+            .map_err(|_| SanParseError::InvalidSquare(s.to_string()))?;
+        let (rest, piece) = split_piece(rest);
+        let (from_file, from_rank, is_capture) =
+            parse_disambiguation(rest).ok_or_else(|| SanParseError::Malformed(s.to_string()))?;
+        Ok(Self::Normal {
+            piece,
+            from_file,
+            from_rank,
+            is_capture,
+            to,
+            promotion,
+        })
     }
+}
+
+fn piece_from_letter(c: char) -> Option<PieceType> {
+    if !c.is_ascii_uppercase() {
+        return None;
+    }
+    if let Some(pt) = PieceType::from_letter(c.to_ascii_lowercase())
+        && pt != PieceType::Pawn
+    {
+        Some(pt)
+    } else {
+        None
+    }
+}
+
+fn promotion_from_char(c: char) -> Option<PieceType> {
+    if let Some(pt) = PieceType::from_letter(c.to_ascii_lowercase())
+        && PieceType::PROMOTIONS.contains(&pt)
+    {
+        Some(pt)
+    } else {
+        None
+    }
+}
+
+fn strip_promotion(s: &str) -> Option<(&str, Option<PieceType>)> {
+    let mut chars = s.chars();
+    let Some(last) = chars.next_back() else {
+        return Some((s, None));
+    };
+    let head = chars.as_str();
+
+    if last == '=' {
+        return None;
+    }
+    if let Some(head) = head.strip_suffix('=') {
+        return Some((head, Some(promotion_from_char(last)?)));
+    }
+    if head.ends_with(|c: char| c.is_ascii_digit()) && last.is_ascii_uppercase() {
+        return Some((head, Some(promotion_from_char(last)?)));
+    }
+    Some((s, None))
+}
+
+fn split_target(s: &str) -> Option<(&str, &str)> {
+    if let len = s.len()
+        && len >= 2
+    {
+        s.split_at_checked(len - 2)
+    } else {
+        None
+    }
+}
+
+fn split_piece(s: &str) -> (&str, PieceType) {
+    let mut chars = s.chars();
+    if let Some(c) = chars.next()
+        && let Some(piece) = piece_from_letter(c)
+    {
+        (chars.as_str(), piece)
+    } else {
+        (s, PieceType::Pawn)
+    }
+}
+
+fn parse_disambiguation(s: &str) -> Option<(Option<u8>, Option<u8>, bool)> {
+    fn take(rest: &mut &str, parse: fn(char) -> Option<u8>) -> Option<u8> {
+        let mut chars = rest.chars();
+        if let Some(index) = parse(chars.next()?) {
+            *rest = chars.as_str();
+            Some(index)
+        } else {
+            None
+        }
+    }
+
+    let mut rest = s;
+    let from_file = take(&mut rest, Square::file_from_char);
+    let from_rank = take(&mut rest, Square::rank_from_char);
+    let is_capture: bool;
+    (rest, is_capture) = if let Some(rest) = rest.strip_prefix("x") {
+        (rest, true)
+    } else {
+        (rest, false)
+    };
+    rest.is_empty()
+        .then_some((from_file, from_rank, is_capture))
 }
 
 impl fmt::Display for SanMove {
@@ -195,7 +312,7 @@ mod tests {
     use super::*;
     use crate::{
         test_helpers::{KIWIPETE, STARTING_FEN, from_fen, sq},
-        types::PieceType::{King, Knight, Pawn, Queen, Rook},
+        types::PieceType::{Bishop, King, Knight, Pawn, Queen, Rook},
     };
 
     const KIWIPETE_BLACK: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq -";
@@ -462,5 +579,214 @@ mod tests {
             ),
         ];
         assert_san_rows(cases);
+    }
+
+    #[test]
+    fn piece_from_letter_rows() {
+        type Cases = &'static [(char, Option<PieceType>)];
+        let cases: Cases = &[
+            ('N', Some(Knight)),
+            ('B', Some(Bishop)),
+            ('R', Some(Rook)),
+            ('Q', Some(Queen)),
+            ('K', Some(King)),
+            ('P', None),
+            ('n', None),
+            ('b', None),
+            ('x', None),
+            ('1', None),
+        ];
+        for &(c, expected) in cases {
+            assert_eq!(expected, piece_from_letter(c), "piece_from_letter({c:?})");
+        }
+    }
+
+    #[test]
+    fn promotion_from_char_rows() {
+        type Cases = &'static [(char, Option<PieceType>)];
+        let cases: Cases = &[
+            ('Q', Some(Queen)),
+            ('R', Some(Rook)),
+            ('B', Some(Bishop)),
+            ('N', Some(Knight)),
+            ('q', Some(Queen)),
+            ('n', Some(Knight)),
+            ('K', None),
+            ('P', None),
+            ('k', None),
+            ('x', None),
+            ('=', None),
+        ];
+        for &(c, expected) in cases {
+            assert_eq!(
+                expected,
+                promotion_from_char(c),
+                "promotion_from_char({c:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn strip_promotion_rows() {
+        type Cases = &'static [(&'static str, Option<(&'static str, Option<PieceType>)>)];
+        let cases: Cases = &[
+            ("e8=Q", Some(("e8", Some(Queen)))),
+            ("e8=R", Some(("e8", Some(Rook)))),
+            ("e8=B", Some(("e8", Some(Bishop)))),
+            ("exd8=N", Some(("exd8", Some(Knight)))),
+            ("e8Q", Some(("e8", Some(Queen)))),
+            ("e8=q", Some(("e8", Some(Queen)))),
+            ("a1=R", Some(("a1", Some(Rook)))),
+            ("Nf3", Some(("Nf3", None))),
+            ("e4", Some(("e4", None))),
+            ("exd5", Some(("exd5", None))),
+            ("Nbd7", Some(("Nbd7", None))),
+            ("e88", Some(("e88", None))),
+            ("", Some(("", None))),
+            ("e8=K", None),
+            ("e8=P", None),
+            ("e8K", None),
+            ("e8=", None),
+            ("e8=x", None),
+        ];
+        for &(s, expected) in cases {
+            assert_eq!(expected, strip_promotion(s), "strip_promotion({s:?})");
+        }
+    }
+
+    #[test]
+    fn split_target_rows() {
+        type Cases = &'static [(&'static str, Option<(&'static str, &'static str)>)];
+        let cases: Cases = &[
+            ("Nf3", Some(("N", "f3"))),
+            ("e4", Some(("", "e4"))),
+            ("Qh4e1", Some(("Qh4", "e1"))),
+            ("exd5", Some(("ex", "d5"))),
+            ("N", None),
+            ("", None),
+        ];
+        for &(s, expected) in cases {
+            assert_eq!(expected, split_target(s), "split_target({s:?})");
+        }
+    }
+
+    #[test]
+    fn split_piece_rows() {
+        type Cases = &'static [(&'static str, (&'static str, PieceType))];
+        let cases: Cases = &[
+            ("N", ("", Knight)),
+            ("B", ("", Bishop)),
+            ("R", ("", Rook)),
+            ("Qh4", ("h4", Queen)),
+            ("Kx", ("x", King)),
+            ("", ("", Pawn)),
+            ("e", ("e", Pawn)),
+            ("ex", ("ex", Pawn)),
+            ("b", ("b", Pawn)),
+            ("P", ("P", Pawn)),
+        ];
+        for &(s, expected) in cases {
+            assert_eq!(expected, split_piece(s), "split_piece({s:?})");
+        }
+    }
+
+    #[test]
+    fn parse_disambiguation_rows() {
+        type Cases = &'static [(&'static str, Option<(Option<u8>, Option<u8>, bool)>)];
+        let cases: Cases = &[
+            ("", Some((None, None, false))),
+            ("x", Some((None, None, true))),
+            ("e", Some((Some(4), None, false))),
+            ("ex", Some((Some(4), None, true))),
+            ("1", Some((None, Some(0), false))),
+            ("h4", Some((Some(7), Some(3), false))),
+            ("bx", Some((Some(1), None, true))),
+            ("g1x", Some((Some(6), Some(0), true))),
+            ("zz", None),
+            ("xx", None),
+            ("4h", None),
+            ("x1", None),
+            ("e4e", None),
+        ];
+        for &(s, expected) in cases {
+            assert_eq!(
+                expected,
+                parse_disambiguation(s),
+                "parse_disambiguation({s:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn san_move_parses_canonical_text() {
+        let cases: &[(&str, SanMove)] = &[
+            ("e4", normal(Pawn, None, None, false, "e4", None)),
+            ("exd5", normal(Pawn, Some(4), None, true, "d5", None)),
+            ("Nf3", normal(Knight, None, None, false, "f3", None)),
+            ("Nbd7", normal(Knight, Some(1), None, false, "d7", None)),
+            ("R1a3", normal(Rook, None, Some(0), false, "a3", None)),
+            ("Qh4e1", normal(Queen, Some(7), Some(3), false, "e1", None)),
+            ("Ngxe2", normal(Knight, Some(6), None, true, "e2", None)),
+            ("Kxe2", normal(King, None, None, true, "e2", None)),
+            ("e8=Q", normal(Pawn, None, None, false, "e8", Some(Queen))),
+            (
+                "axb8=N",
+                normal(Pawn, Some(0), None, true, "b8", Some(Knight)),
+            ),
+            ("O-O", SanMove::Castle(CastleSide::KingSide)),
+            ("O-O-O", SanMove::Castle(CastleSide::QueenSide)),
+        ];
+        for &(text, expected) in cases {
+            assert_eq!(Ok(expected), text.parse::<SanMove>(), "parse {text:?}");
+            assert_eq!(text, expected.to_string(), "Display of {text:?}'s value");
+        }
+    }
+
+    #[test]
+    fn san_move_parse_is_lenient() {
+        let cases: &[(&str, &str)] = &[
+            ("0-0", "O-O"),
+            ("0-0-0", "O-O-O"),
+            ("O-O+", "O-O"),
+            ("e8Q", "e8=Q"),
+            ("e8=q", "e8=Q"),
+            ("Nf3+", "Nf3"),
+            ("Qh4#", "Qh4"),
+            ("Nxf7#", "Nxf7"),
+            ("e4!?", "e4"),
+            ("e8=Q+", "e8=Q"),
+        ];
+        for &(text, canonical) in cases {
+            let parsed = text
+                .parse::<SanMove>()
+                .unwrap_or_else(|e| panic!("{text:?} should parse: {e}"));
+            assert_eq!(canonical, parsed.to_string(), "canonical form of {text:?}");
+        }
+    }
+
+    #[test]
+    fn san_move_parse_errors() {
+        use SanParseError::*;
+        let cases: &[(&str, SanParseError)] = &[
+            ("", Empty),
+            ("N\u{e9}4", NonAscii("N\u{e9}4".to_string())),
+            ("Nz9", InvalidSquare("Nz9".to_string())),
+            ("e88", InvalidSquare("e88".to_string())),
+            ("e8=K", InvalidPromotion("e8=K".to_string())),
+            ("e8=", InvalidPromotion("e8=".to_string())),
+            ("e8K", InvalidPromotion("e8K".to_string())),
+            ("N", Malformed("N".to_string())),
+            ("Nbbd7", Malformed("Nbbd7".to_string())),
+            ("Nzzd5", Malformed("Nzzd5".to_string())),
+            ("Pe4", Malformed("Pe4".to_string())),
+            ("xxe4", Malformed("xxe4".to_string())),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(
+                Err(expected.clone()),
+                text.parse::<SanMove>(),
+                "parse {text:?}"
+            );
+        }
     }
 }
