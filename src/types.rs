@@ -225,12 +225,40 @@ impl Square {
     pub const fn flip_rank(self) -> Self {
         Self(self.0 ^ 56)
     }
+
+    /// Gets file char from file index.
+    pub const fn file_char(file: u8) -> char {
+        debug_assert!(file < 8, "expected file < 8");
+        (b'a' + file) as char
+    }
+
+    /// Gets rank char from rank index.
+    pub const fn rank_char(rank: u8) -> char {
+        debug_assert!(rank < 8, "expected rank < 8");
+        (b'1' + rank) as char
+    }
+
+    /// Gets file index from file char.
+    pub const fn file_from_char(c: char) -> Option<u8> {
+        match c {
+            f @ 'a'..='h' => Some(f as u8 - b'a'),
+            _ => None,
+        }
+    }
+
+    /// Gets rank index from rank char.
+    pub const fn rank_from_char(c: char) -> Option<u8> {
+        match c {
+            r @ '1'..='8' => Some(r as u8 - b'1'),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Square {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let file = (b'a' + self.file()) as char;
-        let rank = self.rank() + 1;
+        let file = Self::file_char(self.file());
+        let rank = Self::rank_char(self.rank());
         write!(f, "{file}{rank}")
     }
 }
@@ -240,10 +268,14 @@ impl FromStr for Square {
 
     /// Parses a square name, e.g. `e4`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match *s.as_bytes() {
-            [file @ b'a'..=b'h', rank @ b'1'..=b'8'] => Ok(Self((rank - b'1') * 8 + (file - b'a'))),
-            _ => Err(ParseError::InvalidSquare),
+        let mut chars = s.chars();
+        match (chars.next(), chars.next(), chars.next()) {
+            (Some(f), Some(r), None) => Self::file_from_char(f)
+                .zip(Self::rank_from_char(r))
+                .and_then(|(file, rank)| Self::from_file_rank(file, rank)),
+            _ => None,
         }
+        .ok_or(ParseError::InvalidSquare)
     }
 }
 
@@ -471,38 +503,167 @@ mod tests {
     }
 
     #[test]
-    fn square_round_trips() {
+    fn square_coordinates() {
         for index in 0..Square::COUNT {
             let sq = Square::from_index(index).unwrap();
-            assert_eq!(sq.to_string().parse::<Square>(), Ok(sq));
-            assert_eq!(Square::from_file_rank(sq.file(), sq.rank()), Some(sq));
+            let (file, rank) = ((index % 8) as u8, (index / 8) as u8);
+            assert_eq!(index, sq.index(), "index of square {index}");
+            assert_eq!(file, sq.file(), "file of square {index}");
+            assert_eq!(rank, sq.rank(), "rank of square {index}");
+            assert_eq!(
+                Some(sq),
+                Square::from_file_rank(file, rank),
+                "from_file_rank({file}, {rank})"
+            );
         }
-        assert_eq!(Square::from_index(64), None);
-        assert_eq!(Square::from_file_rank(8, 0), None);
+        assert_eq!(None, Square::from_index(Square::COUNT), "index 64");
+        assert_eq!(None, Square::from_file_rank(8, 0), "file 8");
+        assert_eq!(None, Square::from_file_rank(0, 8), "rank 8");
     }
 
     #[test]
-    fn square_names() {
-        assert_eq!(Square::from_index(0).unwrap().to_string(), "a1");
-        assert_eq!(Square::from_index(28).unwrap().to_string(), "e4");
-        assert_eq!(Square::from_index(63).unwrap().to_string(), "h8");
-        for bad in ["", "e", "e9", "i1", "E4", "e44", "4e"] {
-            assert!(bad.parse::<Square>().is_err(), "{bad:?} should not parse");
+    fn square_names_match_coordinate_oracle() {
+        const FILES: [char; 8] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+        const RANKS: [char; 8] = ['1', '2', '3', '4', '5', '6', '7', '8'];
+        for index in 0..Square::COUNT {
+            let sq = Square::from_index(index).unwrap();
+            let expected = format!("{}{}", FILES[index % 8], RANKS[index / 8]);
+            assert_eq!(expected, sq.to_string(), "Display of square index {index}");
+            assert_eq!(Ok(sq), expected.parse::<Square>(), "parse {expected:?}");
         }
     }
 
     #[test]
-    fn square_from_file_rank_invalid_is_none() {
-        assert_eq!(Square::from_file_rank(8, 0), None);
+    fn square_rejects_bad_names() {
+        type Cases = &'static [(&'static str, &'static str)];
+        let cases: Cases = &[
+            ("", "empty"),
+            ("e", "too short"),
+            ("e44", "too long"),
+            ("4e", "rank before file"),
+            ("e9", "rank out of range"),
+            ("i1", "file out of range"),
+            ("E4", "uppercase file"),
+            ("\u{e9}4", "non-ASCII 'é'"),
+            ("e4\u{0}", "trailing NUL"),
+            ("\u{161}1", "'š' (U+0161): low byte is 'a'"),
+            ("e\u{131}", "'ı' (U+0131): low byte is '1'"),
+            ("\u{167}\u{138}", "'ŧĸ': low bytes are 'h' and '8'"),
+        ];
+        for &(bad, why) in cases {
+            assert_eq!(
+                Err(ParseError::InvalidSquare),
+                bad.parse::<Square>(),
+                "{bad:?}: {why}"
+            );
+        }
+    }
+
+    #[test]
+    fn square_file_chars() {
+        type Cases = &'static [(u8, char)];
+        let cases: Cases = &[
+            (0, 'a'),
+            (1, 'b'),
+            (2, 'c'),
+            (3, 'd'),
+            (4, 'e'),
+            (5, 'f'),
+            (6, 'g'),
+            (7, 'h'),
+        ];
+        for &(file, c) in cases {
+            assert_eq!(c, Square::file_char(file), "file_char({file})");
+            assert_eq!(
+                Some(file),
+                Square::file_from_char(c),
+                "file_from_char({c:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn square_rank_chars() {
+        type Cases = &'static [(u8, char)];
+        let cases: Cases = &[
+            (0, '1'),
+            (1, '2'),
+            (2, '3'),
+            (3, '4'),
+            (4, '5'),
+            (5, '6'),
+            (6, '7'),
+            (7, '8'),
+        ];
+        for &(rank, c) in cases {
+            assert_eq!(c, Square::rank_char(rank), "rank_char({rank})");
+            assert_eq!(
+                Some(rank),
+                Square::rank_from_char(c),
+                "rank_from_char({c:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn square_from_char_rejects() {
+        type Cases = &'static [(char, &'static str)];
+        let files: Cases = &[
+            ('`', "just below 'a'"),
+            ('i', "just above 'h'"),
+            ('A', "uppercase"),
+            ('1', "a rank"),
+            (' ', "space"),
+            ('\u{161}', "'š' (U+0161): low byte is 0x61 = 'a'"),
+            ('\u{167}', "'ŧ' (U+0167): low byte is 0x67 = 'h'"),
+        ];
+        for &(c, why) in files {
+            assert_eq!(
+                None,
+                Square::file_from_char(c),
+                "file_from_char({c:?}): {why}"
+            );
+        }
+
+        let ranks: Cases = &[
+            ('0', "just below '1'"),
+            ('9', "just above '8'"),
+            ('a', "a file"),
+            (' ', "space"),
+            ('\u{131}', "'ı' (U+0131): low byte is 0x31 = '1'"),
+            ('\u{138}', "'ĸ' (U+0138): low byte is 0x38 = '8'"),
+        ];
+        for &(c, why) in ranks {
+            assert_eq!(
+                None,
+                Square::rank_from_char(c),
+                "rank_from_char({c:?}): {why}"
+            );
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "expected file < 8")]
+    fn square_file_char_out_of_range() {
+        let _ = Square::file_char(8);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "expected rank < 8")]
+    fn square_rank_char_out_of_range() {
+        let _ = Square::rank_char(8);
     }
 
     #[test]
     fn square_flip_rank() {
-        let expected = Square::from_file_rank(0, 0).expect("0, 0 valid");
-        let actual = Square::from_file_rank(0, 7)
-            .expect("0, 7 valid")
-            .flip_rank();
-        assert_eq!(expected, actual);
+        for index in 0..Square::COUNT {
+            let sq = Square::from_index(index).unwrap();
+            let expected = Square::from_file_rank(sq.file(), 7 - sq.rank()).unwrap();
+            assert_eq!(expected, sq.flip_rank(), "flip_rank of {sq}");
+            assert_eq!(sq, sq.flip_rank().flip_rank(), "flip_rank twice of {sq}");
+        }
     }
 
     #[test]

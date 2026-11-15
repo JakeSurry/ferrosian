@@ -6,6 +6,7 @@ pub mod engine;
 pub mod movegen;
 pub mod perft;
 pub mod rng;
+pub mod san;
 pub mod types;
 pub mod uci;
 pub mod versions;
