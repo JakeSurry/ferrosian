@@ -245,8 +245,7 @@ fn san_move(board: &Board, mv: Move) -> SanMove {
 }
 
 fn disambiguate(board: &Board, mv: Move, piece: PieceType) -> (Option<u8>, Option<u8>) {
-    let mut moves = MoveList::new();
-    board.legal_moves(&mut moves);
+    let moves = MoveList::legal(board);
 
     let file = mv.from().file();
     let rank = mv.from().rank();
@@ -279,8 +278,7 @@ impl fmt::Display for San<'_> {
         let mut next = *self.board;
         next.make_move(self.mv);
         if next.is_in_check(next.side_to_move()) {
-            let mut moves = MoveList::new();
-            next.legal_moves(&mut moves);
+            let moves = MoveList::legal(&next);
             if moves.is_empty() {
                 f.write_str("#")?;
             } else {
@@ -293,8 +291,7 @@ impl fmt::Display for San<'_> {
 
 impl Board {
     pub fn san(&self, mv: Move) -> San<'_> {
-        let mut moves = MoveList::new();
-        self.legal_moves(&mut moves);
+        let moves = MoveList::legal(self);
         debug_assert!(
             moves.contains(&mv),
             "{mv} is not legal in current position's legal moves: {moves}"
@@ -302,8 +299,43 @@ impl Board {
         San { board: self, mv }
     }
 
-    pub fn resolve_san(&self, san: &SanMove) -> Result<Move, SanError> {
-        todo!()
+    pub fn resolve_san(&self, san: SanMove) -> Result<Move, SanError> {
+        let moves = MoveList::legal(self);
+        let mut matching = moves.iter().copied().filter(|&mv| matches(self, san, mv));
+        match (matching.next(), matching.next()) {
+            (None, _) => Err(SanError::Illegal),
+            (Some(mv), None) => Ok(mv),
+            (Some(_), Some(_)) => Err(SanError::Ambiguous),
+        }
+    }
+}
+
+fn matches(board: &Board, san: SanMove, mv: Move) -> bool {
+    match san {
+        SanMove::Castle(side) => mv.kind() == MoveKind::Castle(side),
+        SanMove::Normal {
+            piece,
+            from_file,
+            from_rank,
+            is_capture: _,
+            to,
+            promotion,
+        } => {
+            let piece_type = board
+                .piece_at(mv.from())
+                .expect("move is legal so piece exists")
+                .piece_type;
+            !matches!(mv.kind(), MoveKind::Castle(_))
+                && piece == piece_type
+                && from_file.is_none_or(|file| file == mv.from().file())
+                && from_rank.is_none_or(|rank| rank == mv.from().rank())
+                && mv.to() == to
+                && if let MoveKind::Promotion(pt) = mv.kind() {
+                    Some(pt) == promotion
+                } else {
+                    promotion.is_none()
+                }
+        }
     }
 }
 
@@ -318,12 +350,17 @@ mod tests {
     const KIWIPETE_BLACK: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq -";
 
     type SanCases = &'static [(&'static str, &'static str, &'static str, &'static str)];
+    type ResolveCases = &'static [(
+        &'static str,
+        &'static str,
+        &'static str,
+        Result<&'static str, SanError>,
+    )];
 
     /// The legal move in `board` whose UCI text is `uci`.
     #[track_caller]
     fn legal(board: &Board, uci: &str) -> Move {
-        let mut moves = MoveList::new();
-        board.legal_moves(&mut moves);
+        let moves = MoveList::legal(board);
         moves
             .iter()
             .copied()
@@ -786,6 +823,166 @@ mod tests {
                 Err(expected.clone()),
                 text.parse::<SanMove>(),
                 "parse {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_san_rows() {
+        use SanError::{Ambiguous, Illegal};
+        let cases: ResolveCases = &[
+            ("pawn push", STARTING_FEN, "e4", Ok("e2e4")),
+            ("double push", STARTING_FEN, "d4", Ok("d2d4")),
+            ("knight", STARTING_FEN, "Nf3", Ok("g1f3")),
+            (
+                "wrong check suffix is ignored",
+                STARTING_FEN,
+                "Nf3+",
+                Ok("g1f3"),
+            ),
+            (
+                "superfluous full-square hint",
+                STARTING_FEN,
+                "Ng1f3",
+                Ok("g1f3"),
+            ),
+            ("wrong hint", STARTING_FEN, "Nbf3", Err(Illegal)),
+            (
+                "square no knight reaches",
+                STARTING_FEN,
+                "Nf6",
+                Err(Illegal),
+            ),
+            ("pawn can't reach", STARTING_FEN, "e5", Err(Illegal)),
+            (
+                "castling not allowed yet",
+                STARTING_FEN,
+                "O-O",
+                Err(Illegal),
+            ),
+            ("white king side castle", KIWIPETE, "O-O", Ok("e1g1")),
+            ("zeros for castling", KIWIPETE, "0-0", Ok("e1g1")),
+            ("white queen side castle", KIWIPETE, "O-O-O", Ok("e1c1")),
+            ("black king side castle", KIWIPETE_BLACK, "O-O", Ok("e8g8")),
+            (
+                "black queen side castle",
+                KIWIPETE_BLACK,
+                "0-0-0",
+                Ok("e8c8"),
+            ),
+            ("king step is not a castle", KIWIPETE, "Kg1", Err(Illegal)),
+            ("ordinary king step", KIWIPETE, "Kf1", Ok("e1f1")),
+            ("capture", KIWIPETE, "Nxf7", Ok("e5f7")),
+            ("missing x is accepted", KIWIPETE, "Nf7", Ok("e5f7")),
+            ("superfluous x is accepted", KIWIPETE, "Nxd3", Ok("e5d3")),
+            ("pawn capture", KIWIPETE, "dxe6", Ok("d5e6")),
+            (
+                "two knights, no hint",
+                "4k3/8/8/8/8/2N5/8/4K1N1 w - - 0 1",
+                "Ne2",
+                Err(Ambiguous),
+            ),
+            (
+                "two knights, file hint",
+                "4k3/8/8/8/8/2N5/8/4K1N1 w - - 0 1",
+                "Nge2",
+                Ok("g1e2"),
+            ),
+            (
+                "two knights, rank hint",
+                "4k3/8/8/1N6/8/1N6/8/4K3 w - - 0 1",
+                "N5d4",
+                Ok("b5d4"),
+            ),
+            (
+                "black rooks, no hint",
+                "r6r/4k3/8/8/8/8/8/4K3 b - - 0 1",
+                "Rd8",
+                Err(Ambiguous),
+            ),
+            (
+                "black rooks, file hint",
+                "r6r/4k3/8/8/8/8/8/4K3 b - - 0 1",
+                "Rhd8",
+                Ok("h8d8"),
+            ),
+            (
+                "three queens, file still ambiguous",
+                "1k6/8/8/8/4Q2Q/8/8/K6Q w - - 0 1",
+                "Qhe1",
+                Err(Ambiguous),
+            ),
+            (
+                "three queens, full square",
+                "1k6/8/8/8/4Q2Q/8/8/K6Q w - - 0 1",
+                "Qh4e1",
+                Ok("h4e1"),
+            ),
+            (
+                "pinned knight is not a candidate",
+                "4k3/8/8/8/1b6/2N5/8/4K1N1 w - - 0 1",
+                "Ne2",
+                Ok("g1e2"),
+            ),
+            (
+                "white en passant",
+                "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3",
+                "exf6",
+                Ok("e5f6"),
+            ),
+            (
+                "black en passant",
+                "rnbqkbnr/pppp1ppp/8/8/3Pp3/5N2/PPP1PPPP/RNBQKB1R b KQkq d3 0 3",
+                "exd3",
+                Ok("e4d3"),
+            ),
+            (
+                "promotion",
+                "k7/4P3/8/8/8/8/8/K7 w - - 0 1",
+                "e8=Q",
+                Ok("e7e8q"),
+            ),
+            (
+                "bare promotion",
+                "k7/4P3/8/8/8/8/8/K7 w - - 0 1",
+                "e8Q",
+                Ok("e7e8q"),
+            ),
+            (
+                "underpromotion",
+                "k7/4P3/8/8/8/8/8/K7 w - - 0 1",
+                "e8=N",
+                Ok("e7e8n"),
+            ),
+            (
+                "missing promotion piece",
+                "k7/4P3/8/8/8/8/8/K7 w - - 0 1",
+                "e8",
+                Err(Illegal),
+            ),
+            (
+                "black capture-promotion",
+                "k7/8/8/8/8/8/p6K/1N6 b - - 0 1",
+                "axb1=Q",
+                Ok("a2b1q"),
+            ),
+            (
+                "promotion on a non-pawn move",
+                "k7/4P3/8/8/8/8/8/K7 w - - 0 1",
+                "Ka2=Q",
+                Err(Illegal),
+            ),
+        ];
+        for &(why, fen, text, expected) in cases {
+            let board = from_fen(fen);
+            let san: SanMove = text
+                .parse()
+                .unwrap_or_else(|e| panic!("{why}: {text:?} should parse: {e}"));
+            let actual = board.resolve_san(san).map(|mv| mv.to_string());
+            assert_eq!(
+                expected.map(str::to_string),
+                actual,
+                "{why}: {text:?} in {fen}"
             );
         }
     }

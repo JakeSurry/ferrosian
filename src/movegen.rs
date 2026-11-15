@@ -29,6 +29,13 @@ impl MoveList {
         }
     }
 
+    /// Returns a `MoveList` containing all legal moves for the given `Board`.
+    pub fn legal(board: &Board) -> Self {
+        let mut moves = Self::new();
+        board.legal_moves(&mut moves);
+        moves
+    }
+
     pub fn push(&mut self, mv: Move) {
         assert!(
             self.len < MAX_MOVES,
