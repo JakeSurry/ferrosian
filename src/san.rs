@@ -343,7 +343,7 @@ fn matches(board: &Board, san: SanMove, mv: Move) -> bool {
 mod tests {
     use super::*;
     use crate::{
-        test_helpers::{KIWIPETE, STARTING_FEN, from_fen, sq},
+        test_helpers::{KIWIPETE, PERFT3, PERFT4, PERFT5, PERFT6, STARTING_FEN, from_fen, sq},
         types::PieceType::{Bishop, King, Knight, Pawn, Queen, Rook},
     };
 
@@ -381,6 +381,7 @@ mod tests {
         }
     }
 
+    /// Creates a `SanMove::Normal` from given params, taking `to` as a `&str` and parsing.
     #[track_caller]
     fn normal(
         piece: PieceType,
@@ -398,6 +399,47 @@ mod tests {
             to: sq(to),
             promotion,
         }
+    }
+
+    /// Writes `mv` as SAN, parses it back and resolves it, checking each step.
+    #[track_caller]
+    fn assert_round_trip(board: &Board, mv: Move) {
+        let fen = board.fen();
+        let text = board.san(mv).to_string();
+        let parsed: SanMove = text
+            .parse()
+            .unwrap_or_else(|e| panic!("{text:?} ({mv}) doesn't parse: {e}\n{fen}"));
+        assert_eq!(
+            text.trim_end_matches(['+', '#']),
+            parsed.to_string(),
+            "{text:?} ({mv}) reprints differently\n{fen}"
+        );
+        assert_eq!(
+            Ok(mv),
+            board.resolve_san(parsed),
+            "{text:?} ({mv}) resolves to another move\n{fen}"
+        );
+    }
+
+    /// Round-trips every legal move and every reply, returning how many moves were checked.
+    fn round_trip_two_plies(board: &Board) -> u64 {
+        let mut count = 0;
+        let mut moves = MoveList::new();
+        board.legal_moves(&mut moves);
+        for &mv in moves.iter() {
+            assert_round_trip(board, mv);
+            count += 1;
+
+            let mut next = *board;
+            next.make_move(mv);
+            let mut replies = MoveList::new();
+            next.legal_moves(&mut replies);
+            for &reply in replies.iter() {
+                assert_round_trip(&next, reply);
+                count += 1;
+            }
+        }
+        count
     }
 
     #[test]
@@ -983,6 +1025,28 @@ mod tests {
                 expected.map(str::to_string),
                 actual,
                 "{why}: {text:?} in {fen}"
+            );
+        }
+    }
+
+    #[test]
+    fn san_round_trips_two_plies() {
+        // Expected counts are perft(1) + perft(2), the published CPW values, so a
+        // walk that skipped moves will fail too.
+        let cases: &[(&str, u64)] = &[
+            (STARTING_FEN, 20 + 400),
+            (KIWIPETE, 48 + 2_039),
+            (PERFT3, 14 + 191),
+            (PERFT4, 6 + 264),
+            (PERFT5, 44 + 1_486),
+            (PERFT6, 46 + 2_079),
+        ];
+        for &(fen, expected) in cases {
+            let board = from_fen(fen);
+            assert_eq!(
+                expected,
+                round_trip_two_plies(&board),
+                "moves checked from {fen}"
             );
         }
     }
