@@ -17,17 +17,19 @@ fn main() -> Result<()> {
     println!("{board}");
     println!("{}", board.fen());
 
-    let move_list = MoveList::legal(&board);
+    let moves: Vec<String> = MoveList::legal(&board)
+        .iter()
+        .map(|&mv| {
+            if opts.san {
+                board.san(mv).to_string()
+            } else {
+                mv.to_string()
+            }
+        })
+        .collect();
 
-    print!("\n{} legal moves:\n\t", move_list.len());
-    move_list.iter().for_each(|&mv| {
-        if opts.san {
-            print!("{} ", board.san(mv));
-        } else {
-            print!("{mv} ");
-        }
-    });
-    if move_list.is_empty() {
+    print!("\n{} legal moves:\n\t{}", moves.len(), moves.join(" "));
+    if moves.is_empty() {
         if board.is_in_check(board.side_to_move()) {
             println!("checkmate")
         } else {
@@ -44,7 +46,7 @@ fn match_flags(flags: Vec<String>) -> Result<Opts> {
     for flag in flags {
         match flag.as_str() {
             "--san" => san = true,
-            f => anyhow::bail!("unkown flag {f}: available flags: --san"),
+            f => anyhow::bail!("unknown flag {f}: available flags: --san"),
         }
     }
     Ok(Opts { san })

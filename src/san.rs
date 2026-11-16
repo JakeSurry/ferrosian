@@ -56,7 +56,7 @@ impl FromStr for SanMove {
         if !s.is_ascii() {
             return Err(SanParseError::NonAscii(s.to_string()));
         }
-        let rest = s.trim_matches(['+', '#', '?', '!']);
+        let rest = s.trim_end_matches(['+', '#', '?', '!']);
         match rest {
             "O-O" | "0-0" => return Ok(Self::Castle(CastleSide::KingSide)),
             "O-O-O" | "0-0-0" => return Ok(Self::Castle(CastleSide::QueenSide)),
@@ -224,10 +224,9 @@ fn san_move(board: &Board, mv: Move) -> SanMove {
         .expect("move is legal so piece exists")
         .piece_type;
     let is_capture = board.piece_at(mv.to()).is_some() || mv.kind() == MoveKind::EnPassant;
-    let (from_file, from_rank) = if is_capture && piece == PieceType::Pawn {
-        (Some(mv.from().file()), None)
-    } else {
-        disambiguate(board, mv, piece)
+    let (from_file, from_rank) = match piece {
+        PieceType::Pawn => (is_capture.then(|| mv.from().file()), None),
+        _ => disambiguate(board, mv, piece),
     };
     let promotion = if let MoveKind::Promotion(p) = mv.kind() {
         Some(p)
@@ -273,7 +272,7 @@ fn disambiguate(board: &Board, mv: Move, piece: PieceType) -> (Option<u8>, Optio
 }
 
 impl fmt::Display for San<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", san_move(self.board, self.mv))?;
         let mut next = *self.board;
         next.make_move(self.mv);
@@ -291,17 +290,20 @@ impl fmt::Display for San<'_> {
 
 impl Board {
     pub fn san(&self, mv: Move) -> San<'_> {
-        let moves = MoveList::legal(self);
         debug_assert!(
-            moves.contains(&mv),
-            "{mv} is not legal in current position's legal moves: {moves}"
+            MoveList::legal(self).contains(&mv),
+            "{mv} is not legal in {}",
+            self.fen()
         );
         San { board: self, mv }
     }
 
     pub fn resolve_san(&self, san: SanMove) -> Result<Move, SanError> {
         let moves = MoveList::legal(self);
-        let mut matching = moves.iter().copied().filter(|&mv| matches(self, san, mv));
+        let mut matching = moves
+            .iter()
+            .copied()
+            .filter(|&mv| san_matches(self, san, mv));
         match (matching.next(), matching.next()) {
             (None, _) => Err(SanError::Illegal),
             (Some(mv), None) => Ok(mv),
@@ -310,7 +312,7 @@ impl Board {
     }
 }
 
-fn matches(board: &Board, san: SanMove, mv: Move) -> bool {
+fn san_matches(board: &Board, san: SanMove, mv: Move) -> bool {
     match san {
         SanMove::Castle(side) => mv.kind() == MoveKind::Castle(side),
         SanMove::Normal {

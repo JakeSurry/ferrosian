@@ -1,5 +1,5 @@
 //! v0: plays a uniformly random legal move. The baseline every later version is measured
-//! against.
+//! against. Frozen.
 
 use crate::{
     movegen::MoveList,
