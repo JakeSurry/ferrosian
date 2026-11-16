@@ -161,6 +161,24 @@ impl Piece {
         }
     }
 
+    /// Gets the Unicode character for this piece.
+    pub const fn unicode_char(self) -> char {
+        match (self.color, self.piece_type) {
+            (Color::White, PieceType::King) => '\u{265A}',   // ♚
+            (Color::White, PieceType::Queen) => '\u{265B}',  // ♛
+            (Color::White, PieceType::Rook) => '\u{265C}',   // ♜
+            (Color::White, PieceType::Bishop) => '\u{265D}', // ♝
+            (Color::White, PieceType::Knight) => '\u{265E}', // ♞
+            (Color::White, PieceType::Pawn) => '\u{265F}',   // ♟
+            (Color::Black, PieceType::King) => '\u{2654}',   // ♔
+            (Color::Black, PieceType::Queen) => '\u{2655}',  // ♕
+            (Color::Black, PieceType::Rook) => '\u{2656}',   // ♖
+            (Color::Black, PieceType::Bishop) => '\u{2657}', // ♗
+            (Color::Black, PieceType::Knight) => '\u{2658}', // ♘
+            (Color::Black, PieceType::Pawn) => '\u{2659}',   // ♙
+        }
+    }
+
     /// Legible name for a piece, used in error messages.
     pub fn name(self) -> String {
         format!("{:?} {:?}", self.color, self.piece_type)
@@ -500,6 +518,28 @@ mod tests {
         );
         assert_eq!(Piece::from_fen_char('x'), None);
         assert_eq!(Piece::from_fen_char('1'), None);
+    }
+
+    #[test]
+    fn piece_unicode_char() {
+        let cases = &[
+            ('k', '♔'),
+            ('q', '♕'),
+            ('r', '♖'),
+            ('b', '♗'),
+            ('n', '♘'),
+            ('p', '♙'),
+            ('K', '♚'),
+            ('Q', '♛'),
+            ('R', '♜'),
+            ('B', '♝'),
+            ('N', '♞'),
+            ('P', '♟'),
+        ];
+        for &(fen_char, expected) in cases {
+            let piece = Piece::from_fen_char(fen_char).expect("valid FEN letter");
+            assert_eq!(expected, piece.unicode_char());
+        }
     }
 
     #[test]

@@ -11,6 +11,8 @@ pub use fen::{Fen, FenError};
 mod makemove;
 mod validate;
 pub use validate::{EnPassantError, PositionError, PositionErrors};
+mod grid;
+pub use grid::{Glyphs, Grid};
 
 use crate::attacks;
 use crate::types::{Bitboard, CastlingRights, Color, Piece, PieceType, Square};
@@ -221,16 +223,7 @@ impl Board {
 
 impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for rank in (0..8).rev() {
-            write!(f, "{}", rank + 1)?;
-            for file in 0..8 {
-                let square = Square::from_file_rank(file, rank).expect("file and rank are in 0..8");
-                let c = self.mailbox[square.index()].map_or('.', Piece::fen_char);
-                write!(f, " {c}")?;
-            }
-            writeln!(f)?;
-        }
-        writeln!(f, "  a b c d e f g h")?;
+        write!(f, "{}", self.grid(Glyphs::Ascii))?;
         writeln!(f)?;
 
         writeln!(f, "Side to move: {}", self.side_to_move)?;
