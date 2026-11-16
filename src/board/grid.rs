@@ -36,11 +36,10 @@ impl fmt::Display for Grid<'_> {
             write!(f, "{}", rank + 1)?;
             for file in 0..8 {
                 let square = Square::from_file_rank(file, rank).expect("file and rank are in 0..8");
-                let glyph = if let Some(piece) = self.board.piece_at(square) {
-                    self.glyphs.piece(piece)
-                } else {
-                    '.'
-                };
+                let glyph = self
+                    .board
+                    .piece_at(square)
+                    .map_or('.', |piece| self.glyphs.piece(piece));
                 write!(f, " {glyph}")?;
             }
             writeln!(f)?;
@@ -50,6 +49,7 @@ impl fmt::Display for Grid<'_> {
 }
 
 impl Board {
+    /// Returns a [`Grid`] which can be printed with `Grid::to_str` to display the chess position.
     pub fn grid(&self, glyphs: Glyphs) -> Grid<'_> {
         Grid {
             board: self,
@@ -71,18 +71,10 @@ mod tests {
             (Glyphs::Ascii, 'k', 'k'),
             (Glyphs::Ascii, 'N', 'N'),
             (Glyphs::Ascii, 'p', 'p'),
-            (Glyphs::Unicode, 'k', '♔'),
-            (Glyphs::Unicode, 'q', '♕'),
-            (Glyphs::Unicode, 'r', '♖'),
-            (Glyphs::Unicode, 'b', '♗'),
-            (Glyphs::Unicode, 'n', '♘'),
-            (Glyphs::Unicode, 'p', '♙'),
             (Glyphs::Unicode, 'K', '♚'),
-            (Glyphs::Unicode, 'Q', '♛'),
-            (Glyphs::Unicode, 'R', '♜'),
-            (Glyphs::Unicode, 'B', '♝'),
+            (Glyphs::Unicode, 'k', '♔'),
             (Glyphs::Unicode, 'N', '♞'),
-            (Glyphs::Unicode, 'P', '♟'),
+            (Glyphs::Unicode, 'p', '♙'),
         ];
         for &(glyphs, fen_char, expected) in cases {
             let piece = Piece::from_fen_char(fen_char).expect("valid FEN letter");

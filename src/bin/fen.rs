@@ -63,7 +63,7 @@ fn match_flags(flags: Vec<String>) -> Result<Opts> {
         match flag.as_str() {
             "--san" => san = true,
             "--unicode" => glyphs = Glyphs::Unicode,
-            f => anyhow::bail!("unknown flag {f}: available flags: --san"),
+            f => anyhow::bail!("unknown flag {f}: available flags: --san --unicode"),
         }
     }
     Ok(Opts { san, glyphs })

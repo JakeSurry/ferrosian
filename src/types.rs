@@ -161,7 +161,7 @@ impl Piece {
         }
     }
 
-    /// Gets the Unicode character for this piece.
+    /// Gets the Unicode character for this piece. Filled for white, outline for black.
     pub const fn unicode_char(self) -> char {
         match (self.color, self.piece_type) {
             (Color::White, PieceType::King) => '\u{265A}',   // ♚
@@ -538,7 +538,11 @@ mod tests {
         ];
         for &(fen_char, expected) in cases {
             let piece = Piece::from_fen_char(fen_char).expect("valid FEN letter");
-            assert_eq!(expected, piece.unicode_char());
+            assert_eq!(
+                expected,
+                piece.unicode_char(),
+                "unicode_char for {fen_char:?}"
+            );
         }
     }
 
