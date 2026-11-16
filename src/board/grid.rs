@@ -49,7 +49,7 @@ impl fmt::Display for Grid<'_> {
 }
 
 impl Board {
-    /// Returns a [`Grid`] which can be printed with `Grid::to_str` to display the chess position.
+    /// Returns a [`Grid`] which formats with `Display`.
     pub fn grid(&self, glyphs: Glyphs) -> Grid<'_> {
         Grid {
             board: self,
