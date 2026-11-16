@@ -1,3 +1,15 @@
+//! Standard Algebraic Notation (SAN): `e4`, `Nbd7`, `exd5`, `O-O`, `e8=Q+`, `Qh4#`.
+//!
+//! SAN depends on the position, so it is not a `Display`/`FromStr` pair on [`Move`]. Instead:
+//!
+//! - **Writing:** [`Board::san`] returns a [`San`] display wrapper.
+//! - **Reading, in two steps:** `str::parse::<SanMove>()` checks the syntax alone, then
+//!   [`Board::resolve_san`] finds the one legal move it names.
+//!
+//! Formatting is strict and parsing is lenient: we always write `O-O`, `e8=Q` and the
+//! exact `+`/`#`, and accept `0-0`, `e8Q`, `e8=q`, a missing or wrong `+`/`#`, trailing
+//! `!`/`?`, a superfluous `x` or hint.
+
 use crate::{
     board::Board,
     movegen::MoveList,
@@ -6,42 +18,65 @@ use crate::{
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
+/// Why a string is not SAN syntax. Each variant holds the whole input.
 #[derive(Error, Clone, PartialEq, Eq, Debug)]
 pub enum SanParseError {
+    /// The input is empty.
     #[error("empty move")]
     Empty,
 
+    /// The input contains a non-ASCII character
     #[error("non-ascii move {0:?}")]
     NonAscii(String),
 
+    /// The last two characters before any promotion are not a square.
     #[error("invalid target square in {0:?}")]
     InvalidSquare(String),
 
+    /// A promotion is written but names no promotion piece (`e8=K`, `e8=`).
     #[error("invalid promotion in {0:?}")]
     InvalidPromotion(String),
 
+    /// The text is too short for a target square, or has characters SAN doesn't allow.
     #[error("unexpected text in {0:?}")]
     Malformed(String),
 }
 
+/// Why a [`SanMove`] doesn't name exactly one legal move in a position.
 #[derive(Error, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SanError {
+    /// No legal move matches.
     #[error("no legal move matches")]
     Illegal,
 
+    /// More than one legal move matches; the SAN needs a file or rank hint.
     #[error("more than one legal move matches")]
     Ambiguous,
 }
 
+/// The parts of a SAN move, read from text alone, without a position.
+///
+/// `FromStr` parses leniently; `Display` prints the canonical form without a check
+/// suffix (`"0-0+"` parses and prints as `"O-O"`). Turn it into a [`Move`] with
+/// [`Board::resolve_san`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SanMove {
+    /// `O-O` (king side) or `O-O-O` (queen side).
     Castle(CastleSide),
+
+    /// Every other move.
     Normal {
+        /// The moving piece; [`PieceType::Pawn`] when no letter is written.
         piece: PieceType,
+        /// 0-based file hint (`b` in `Nbd7`, `e` in `exd5`).
         from_file: Option<u8>,
+        /// 0-based rank hint (`1` in `R1a3`).
         from_rank: Option<u8>,
+        /// Whether an `x` was written. Ignored when resolving.
         is_capture: bool,
+        /// The target square.
         to: Square,
+        /// The promotion piece (`=Q`).
         promotion: Option<PieceType>,
     },
 }
@@ -84,6 +119,8 @@ impl FromStr for SanMove {
     }
 }
 
+/// The piece for an uppercase SAN letter (`N B R Q K`). Lowercase is never a piece,
+/// because `b` is the b-file.
 fn piece_from_letter(c: char) -> Option<PieceType> {
     if !c.is_ascii_uppercase() {
         return None;
@@ -97,6 +134,7 @@ fn piece_from_letter(c: char) -> Option<PieceType> {
     }
 }
 
+/// The promotion piece for a letter of either case; `None` for king, pawn or a non-piece.
 fn promotion_from_char(c: char) -> Option<PieceType> {
     if let Some(pt) = PieceType::from_letter(c.to_ascii_lowercase())
         && PieceType::PROMOTIONS.contains(&pt)
@@ -107,6 +145,9 @@ fn promotion_from_char(c: char) -> Option<PieceType> {
     }
 }
 
+/// Splits a trailing promotion (`=Q`, `=q` or a bare uppercase `Q` after a digit) off `s`.
+///
+/// `Some((s, None))` when there is none; `None` when one is written but invalid.
 fn strip_promotion(s: &str) -> Option<(&str, Option<PieceType>)> {
     let mut chars = s.chars();
     let Some(last) = chars.next_back() else {
@@ -126,16 +167,12 @@ fn strip_promotion(s: &str) -> Option<(&str, Option<PieceType>)> {
     Some((s, None))
 }
 
+/// Splits the last two bytes (the target square's text) off `s`; `None` if too short.
 fn split_target(s: &str) -> Option<(&str, &str)> {
-    if let len = s.len()
-        && len >= 2
-    {
-        s.split_at_checked(len - 2)
-    } else {
-        None
-    }
+    s.split_at_checked(s.len().checked_sub(2)?)
 }
 
+/// Splits a leading piece letter off `s`, or returns `s` unchanged and a pawn.
 fn split_piece(s: &str) -> (&str, PieceType) {
     let mut chars = s.chars();
     if let Some(c) = chars.next()
@@ -147,7 +184,11 @@ fn split_piece(s: &str) -> (&str, PieceType) {
     }
 }
 
+/// Parses what sits between the piece and the target: `[file][rank][x]`, each optional.
+///
+/// Returns `(from_file, from_rank, is_capture)`, or `None` if anything is left over.
 fn parse_disambiguation(s: &str) -> Option<(Option<u8>, Option<u8>, bool)> {
+    /// Pops the first char of `rest` if `parse` accepts it.
     fn take(rest: &mut &str, parse: fn(char) -> Option<u8>) -> Option<u8> {
         let mut chars = rest.chars();
         if let Some(index) = parse(chars.next()?) {
@@ -206,15 +247,21 @@ impl fmt::Display for SanMove {
     }
 }
 
+/// The uppercase SAN letter for a piece.
 fn piece_letter(pt: PieceType) -> char {
     pt.letter().to_ascii_uppercase()
 }
 
+/// A move written as SAN, from [`Board::san`]. Formats with `Display`.
 pub struct San<'a> {
     board: &'a Board,
     mv: Move,
 }
 
+/// The SAN parts of a legal `mv`, without the check suffix.
+///
+/// Pawn captures always carry their from-file; other pieces get the hints from
+/// [`disambiguate`].
 fn san_move(board: &Board, mv: Move) -> SanMove {
     if let MoveKind::Castle(side) = mv.kind() {
         return SanMove::Castle(side);
@@ -243,6 +290,10 @@ fn san_move(board: &Board, mv: Move) -> SanMove {
     }
 }
 
+/// The from-square hints SAN needs so a non-pawn `mv` names one legal move.
+///
+/// File if that is enough, else rank, else both. Only legal moves count, so a pinned
+/// piece never forces a hint.
 fn disambiguate(board: &Board, mv: Move, piece: PieceType) -> (Option<u8>, Option<u8>) {
     let moves = MoveList::legal(board);
 
@@ -271,8 +322,9 @@ fn disambiguate(board: &Board, mv: Move, piece: PieceType) -> (Option<u8>, Optio
     }
 }
 
+/// The [`SanMove`] text, then `+` if the move gives check or `#` if it mates.
 impl fmt::Display for San<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", san_move(self.board, self.mv))?;
         let mut next = *self.board;
         next.make_move(self.mv);
@@ -289,6 +341,9 @@ impl fmt::Display for San<'_> {
 }
 
 impl Board {
+    /// `mv` written as SAN, e.g. `board.san(mv).to_string()` gives `"Nbd7"`.
+    ///
+    /// `mv` must be legal in `self` (checked in debug builds).
     pub fn san(&self, mv: Move) -> San<'_> {
         debug_assert!(
             MoveList::legal(self).contains(&mv),
@@ -298,6 +353,15 @@ impl Board {
         San { board: self, mv }
     }
 
+    /// The one legal move `san` names in this position.
+    ///
+    /// Lenient: hints that aren't needed and the capture flag are not checked, but a
+    /// promotion must name its piece and castling must be written as castling (`Kg1` is
+    /// never `O-O`).
+    ///
+    /// # Errors
+    ///
+    /// [`SanError::Illegal`] if no legal move matches, [`SanError::Ambiguous`] if several do.
     pub fn resolve_san(&self, san: SanMove) -> Result<Move, SanError> {
         let moves = MoveList::legal(self);
         let mut matching = moves
@@ -312,6 +376,7 @@ impl Board {
     }
 }
 
+/// Whether the legal move `mv` fits every part `san` specifies.
 fn san_matches(board: &Board, san: SanMove, mv: Move) -> bool {
     match san {
         SanMove::Castle(side) => mv.kind() == MoveKind::Castle(side),

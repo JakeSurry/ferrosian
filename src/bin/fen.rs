@@ -1,7 +1,16 @@
+//! Prints a position, its FEN and its legal moves.
+//!
+//! ```text
+//! cargo run --bin fen -- [--san] <FEN>
+//! ```
+//!
+//! Moves are UCI by default; `--san` prints them as SAN.
+
 use anyhow::{Context, Result};
 use ferrosian::{board::Board, movegen::MoveList};
 use std::env;
 
+/// Command-line flags.
 struct Opts {
     pub san: bool,
 }
@@ -41,6 +50,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Parses the flags, rejecting any it doesn't know.
 fn match_flags(flags: Vec<String>) -> Result<Opts> {
     let mut san = false;
     for flag in flags {
